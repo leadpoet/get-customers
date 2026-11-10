@@ -193,7 +193,7 @@ class FindCase(Case):
         self.customers.handle("go", self.code("go"))
         body = self.api.requests[0]
         real = self.api.pipeline_contacts
-        copies = {"Tallgrass Dental": body["request_description"].upper() + ".", "Harbor Lane Roasters": " N/A "}
+        copies = {"Tallgrass Couriers": body["request_description"].upper() + ".", "Harbor Lane Roasters": " N/A "}
         self.api.pipeline_contacts = lambda icp: [{**row, "icp_details": copies.get(row["company"], row.get("icp_details"))}
                                                   for row in real(icp)]
         self.api.state = "completed"

@@ -12,7 +12,7 @@ _PAGES = {
                   "into a clean handover for the next shift. Teams cut handover time by 40 percent in the first month. Sunnyday works on any phone, and the handover is waiting when the next shift starts. Built for regional delivery and freight companies whose drivers change over every day.",
     "https://pinecrest-freight.example/": "Pinecrest Freight. We now run cold-chain lanes out of Rotterdam six days a week. Our drivers carry fresh produce and pharmaceuticals for growers and clinics across the region, and our dispatch team is on call around the clock for every load.",
     "https://harborlaneroasters.example/": "Harbor Lane Roasters. Our new wholesale program ships to independent cafes across Oregon. We roast small batches every morning, and our own vans bring fresh coffee to each cafe on a weekly route that our drivers know by heart.",
-    "https://tallgrassdental.example/": "Tallgrass Dental. Gentle care for the whole family. Our friendly team offers cleanings, fillings, crowns and emergency visits, with early morning appointments for busy parents and a calm, welcoming office for nervous patients.",
+    "https://tallgrasscouriers.example/": "Tallgrass Couriers. Same-day courier routes across Omaha and Lincoln. Our drivers cover medical, legal and retail deliveries, and every route is planned the night before by our dispatch desk. Two shifts run each weekday, and a driver picks up within the hour.",
 }
 PEOPLE = [
     {"id": "demo-marcus", "query_id": "demo-find", "name": "Marcus Oyelaran", "role": "VP Operations", "company": "Pinecrest Freight",
@@ -21,8 +21,8 @@ PEOPLE = [
     {"id": "demo-priya", "query_id": "demo-find", "name": "Priya Raman", "role": "Head of Logistics", "company": "Harbor Lane Roasters",
      "email": "priya@harborlaneroasters.example", "website": "https://harborlaneroasters.example/",
      "icp_details": "Launched a wholesale program in October that runs its own van routes to cafes."},
-    {"id": "demo-lena", "query_id": "demo-find", "name": "Lena Fischer", "role": "Practice Director", "company": "Tallgrass Dental",
-     "email": "lena@tallgrassdental.example", "website": "https://tallgrassdental.example/"},
+    {"id": "demo-lena", "query_id": "demo-find", "name": "Lena Fischer", "role": "Operations Director", "company": "Tallgrass Couriers",
+     "email": "lena@tallgrasscouriers.example", "website": "https://tallgrasscouriers.example/"},
 ]
 _BRIEF = {
     "product_name": "Sunnyday", "summary": "Sunnyday turns drivers' voice notes into clean shift handovers for delivery teams.",
@@ -51,12 +51,12 @@ _SEQUENCE = {"emails": [
 ]}
 _LINES = {
     "Pinecrest Freight": {"lines": [{"line": "Pinecrest Freight runs cold-chain lanes out of Rotterdam six days a week.",
-                                     "said_by": "seller", "quote": "We now run cold-chain lanes out of Rotterdam six days a week", "url": "https://pinecrest-freight.example/"}]},
+                                     "quote": "We now run cold-chain lanes out of Rotterdam six days a week", "url": "https://pinecrest-freight.example/"}]},
     "Harbor Lane Roasters": {"lines": [{"line": "Your new wholesale program ships to independent cafes.",
-                                        "said_by": "seller", "quote": "Our new wholesale program ships to independent cafes", "url": "https://harborlaneroasters.example/"}]},
+                                        "quote": "Our new wholesale program ships to independent cafes", "url": "https://harborlaneroasters.example/"}]},
     # This one is wrong on purpose: the page never says it, so the check throws it out.
-    "Tallgrass Dental": {"lines": [{"line": "Congrats on opening your third clinic in Omaha.",
-                                    "said_by": "seller", "quote": "We just opened our third clinic in Omaha", "url": "https://tallgrassdental.example/"}]},
+    "Tallgrass Couriers": {"lines": [{"line": "Congrats on opening your third depot in Omaha.",
+                                    "quote": "We just opened our third depot in Omaha", "url": "https://tallgrasscouriers.example/"}]},
 }
 
 

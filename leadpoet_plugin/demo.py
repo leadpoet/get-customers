@@ -12,7 +12,7 @@ _REPLIES = [
     ("demo-2", "Marcus Oyelaran", "Pinecrest Freight", "positive", "urgent", 95,
      "This is timely. Can you do Thursday afternoon?",
      "Hi Marcus, glad the timing works. Thursday afternoon is good. Does 2 PM your time suit you?"),
-    ("demo-3", "Lena Fischer", "Tallgrass Dental", "negative", "normal", 1500,
+    ("demo-3", "Lena Fischer", "Tallgrass Couriers", "negative", "normal", 1500,
      "Please remove me from your list.", None),
 ]
 
