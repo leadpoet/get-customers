@@ -1,4 +1,7 @@
-"""Scheduled check, run by a Hermes no-agent cron job.
+"""Scheduled check, run as `hermes leadpoet check` by a Hermes no-agent cron job.
+
+Hermes keeps plugin secrets out of cron scripts, so the script only starts this
+command and the key arrives through Hermes itself.
 
 Standard output is delivered to the user's chat, and empty output stays silent.
 It makes no model calls, so checking every few minutes costs no tokens.
@@ -29,15 +32,6 @@ def get_key() -> str:
     from agent.secret_scope import get_secret
 
     return (get_secret("LEADPOET_API_KEY") or "").strip()
-
-
-def script_key() -> str:
-    """The scheduled job reads the key itself, so it never enters the agent's terminal."""
-    from hermes_cli.env_loader import load_hermes_dotenv
-    from hermes_constants import get_hermes_home
-
-    load_hermes_dotenv(hermes_home=get_hermes_home())
-    return get_key()
 
 
 def run(desk: Desk) -> str:
@@ -72,7 +66,7 @@ def advance(customers: Customers, store: Store) -> str:
 
 
 def main() -> int:
-    key = script_key()
+    key = get_key()
     if not key:
         print("LEADPOET_API_KEY isn't available to this job. See the plugin README.", file=sys.stderr)
         return 1

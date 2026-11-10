@@ -80,7 +80,8 @@ It prints one `hermes cron create` line to run. The check uses no model, so it c
 - **Your model.** Site text and reply text go to the model Hermes is set up to use.
 - **Credentials.** It uses `LEADPOET_API_KEY` through Hermes. It stores no other secrets.
 - **Local data.** Job state and replies are kept in the plugin's own Hermes data folder.
-- **Background work.** Only if you run `hermes leadpoet watch`, which creates a Hermes cron job. It runs no shell commands and sends no telemetry.
+- **Background work.** Only if you set up `hermes leadpoet watch`. It writes one small script to your Hermes `scripts` folder and prints the `hermes cron create` line for you to run. Each run calls `hermes leadpoet check`. The plugin sends no telemetry.
+- **Who can act.** Direct messages use your Hermes gateway's own allowlist. In a group chat, only ids in `allowed_user_ids` can use `/customers` or `/desk`. The model's tools can read a reply and save a draft, but only your own command can approve or send.
 
 ## Good to know
 
@@ -88,5 +89,6 @@ It prints one `hermes cron create` line to run. The check uses no model, so it c
 - A search is 10 companies, the smallest Leadpoet runs, which is exactly what the free credits buy.
 - Each person becomes their own small campaign in Leadpoet, because every email is different.
 - Sending needs a connected inbox and your sender details in Leadpoet. Hermes tells you if either is missing.
+- Sites that block readers or only render in a browser can't be read. Describe the company with `/customers about <text>` instead.
 
 MIT licensed.

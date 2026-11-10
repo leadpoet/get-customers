@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import threading
@@ -8,6 +9,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -471,14 +473,22 @@ class PluginCase(unittest.TestCase):
         plugin = self.make()
         self.assertIn("direct message", plugin.command("demo", platform="telegram", source=None))
 
-    def test_watch_script_points_at_the_plugin(self):
+    def test_watch_script_runs_the_check_and_passes_on_its_result(self):
         entry = load_entry()
         with tempfile.TemporaryDirectory() as home:
             script = entry.write_watch_script(Path(home))
-            text = script.read_text()
-            self.assertIn("leadpoet_plugin.poll", text)
-            self.assertNotIn("lp_live", text)
-            compile(text, str(script), "exec")
+            fake = Path(home) / "hermes"
+            fake.write_text('#!/bin/sh\necho "ran: $*"\nexit 3\n')
+            fake.chmod(0o755)
+            done = subprocess.run([sys.executable, str(script)], capture_output=True, text=True,
+                                  env={"PATH": home})
+            self.assertEqual("ran: leadpoet check\n", done.stdout)
+            self.assertEqual(3, done.returncode)
+
+    def test_check_command_returns_the_poll_result(self):
+        entry = load_entry()
+        with mock.patch.object(entry, "poll_main", return_value=1):
+            self.assertEqual(1, entry._watch_command(types.SimpleNamespace(action="check")))
 
 
 if __name__ == "__main__":

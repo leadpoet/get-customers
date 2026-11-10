@@ -17,7 +17,7 @@ from leadpoet_plugin.customers import HELP as CUSTOMERS_HELP, Customers  # noqa:
 from leadpoet_plugin.customers_demo import SELLER, DemoCustomersApi, DemoLlm, demo_fetch  # noqa: E402
 from leadpoet_plugin.demo import DemoApi  # noqa: E402
 from leadpoet_plugin.desk import Desk  # noqa: E402
-from leadpoet_plugin.poll import data_dir, get_key  # noqa: E402
+from leadpoet_plugin.poll import data_dir, get_key, main as poll_main  # noqa: E402
 from leadpoet_plugin.store import Store  # noqa: E402
 
 logger = logging.getLogger(__name__)
@@ -227,6 +227,7 @@ def _watch_setup(parser: Any) -> None:
     watch = sub.add_parser("watch", help="Create the script that checks for new replies")
     watch.add_argument("--every", default="5m")
     watch.add_argument("--deliver", default="telegram")
+    sub.add_parser("check", help="Check once for new contacts and replies")
 
 
 def _hermes_home() -> Path:
@@ -240,12 +241,14 @@ def write_watch_script(home: Path) -> Path:
     scripts.mkdir(parents=True, exist_ok=True)
     target = scripts / SCRIPT_NAME
     target.write_text(
-        f"import sys\nsys.path.insert(0, {str(PLUGIN_ROOT)!r})\n"
-        "from leadpoet_plugin.poll import main\nraise SystemExit(main())\n", encoding="utf-8")
+        'import subprocess\nraise SystemExit(subprocess.call(["hermes", "leadpoet", "check"]))\n',
+        encoding="utf-8")
     return target
 
 
 def _watch_command(args: Any) -> int:
+    if getattr(args, "action", None) == "check":
+        return poll_main()
     if getattr(args, "action", None) != "watch":
         print("Use: hermes leadpoet watch --every 5m --deliver telegram")
         return 1
