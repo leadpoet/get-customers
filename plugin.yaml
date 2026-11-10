@@ -1,0 +1,31 @@
+name: leadpoet
+version: 0.2.0
+description: Run /customers yoursite.com and get verified contacts, emails where every personal line shows its source, approval from your phone, and replies you can answer in chat. Try /customers demo with no account.
+author: Leadpoet
+license: MIT
+homepage: https://leadpoet.com
+manifest_version: 2
+api_version: 1
+requires_hermes: ">=0.23.0"
+tags:
+  - sales
+  - inbox
+  - outreach
+provides_tools:
+  - leadpoet_desk_current
+  - leadpoet_desk_set_draft
+  - leadpoet_customers_status
+provides_hooks: []
+config_schema:
+  api_key:
+    type: secret
+    env: LEADPOET_API_KEY
+    label: Leadpoet API key
+    description: Create one in Leadpoet under Settings, Developer, with Lead Engine, Pipeline and Outreach access. Not needed for /customers demo.
+    required: false
+  allowed_user_ids:
+    type: list
+    default: []
+    label: Group chat users
+    description: Platform user ids that may use /customers and /desk in a group chat. Direct messages need no entry.
+    required: false
