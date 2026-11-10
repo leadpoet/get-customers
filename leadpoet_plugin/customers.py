@@ -146,13 +146,14 @@ def account_note(note: object, *requests: dict | None) -> str:
     if not isinstance(note, str):
         return ""
     text = _comparable(note)
-    if not re.sub(r"[^\w]", "", text) or re.sub(r"[^\w]", "", text) in _FILLER:
+    letters = re.sub(r"[\W_]", "", text)
+    if not letters or letters in _FILLER:
         return ""
     asked = [_comparable(str((request or {}).get(key) or ""))
              for request in requests for key in ("request_description", "intent_signals")]
     if any(text in part for part in asked):
         return ""
-    return re.sub(r"\s+", " ", note).strip()[:300]
+    return re.sub(r"\s+", " ", note).strip()
 
 
 def _arrivals(people: list[dict]) -> str:

@@ -166,10 +166,35 @@ def _sentence(line: str) -> str:
     return f"{line}." if line and line[-1] not in ".!?" else line
 
 
+_HEDGE = re.compile(r"\b(?:may|might|could|likely|probably|possibly|perhaps|plans?|planning|considering|evaluating|"
+                    r"appears?|seems?|reportedly|rumou?red|expected|potential(?:ly)?)\b", re.IGNORECASE)
+_LEAD_INS = frozenset({"is", "was", "has", "had", "have", "are", "were"})
+
+
+def _tokens(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9$%]+(?:['’][a-z]+)?", text.lower().replace("’", "'"))
+
+
+def restates_note(line: str, note: str, company: str) -> bool:
+    """The line is the company's name, at most one small verb, then the whole note, word for word.
+
+    Dropping words could hand another company's news to this one, so nothing may be left out."""
+    name = _tokens(company)
+    said, source = _tokens(line), _tokens(note)
+    if not name or said[:len(name)] != name:
+        return False
+    rest = said[len(name):]
+    if source[:len(name)] == name:
+        source = source[len(name):]
+    if rest[:1] and rest[0] in _LEAD_INS and rest[1:] == source:
+        return True
+    return rest == source
+
+
 def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     """The buying signal Leadpoet found, as the first line. The note is the source, so the line may only restate it."""
     note = re.sub(r"\s+", " ", str(person.get("why") or "")).strip()
-    if not note:
+    if not note or _HEDGE.search(note):  # A guess is not a reason to write.
         return [], 0
     company = str(person.get("company") or "")
     raw = _complete(llm, _SIGNAL_SYSTEM, f"Company: {company}\n<note>\n{without_tag(note, 'note')}\n</note>",
@@ -178,7 +203,7 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     if not line:
         return [], 0
     good = (len(line) <= MAX_LINE_CHARS and ":" not in line and _opens_on_company(line, person) and not _FORBIDDEN.search(line)
-            and not _PLACEHOLDER.search(line) and line_is_supported(line, note, person))
+            and not _PLACEHOLDER.search(line) and restates_note(line, note, company) and line_is_supported(line, note, person))
     return ([{"line": line, "quote": note, "url": ""}], 0) if good else ([], 1)
 
 

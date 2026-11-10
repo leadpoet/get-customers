@@ -1102,6 +1102,14 @@ class SignalOpenerTests(unittest.TestCase):
         self.assertEqual(self.line("Ramp posted five SDR roles in the past month."), ([], 1))
         self.assertEqual(self.line("Ramp posted three SDR roles.", why=""), ([], 0))
 
+    def test_the_opener_never_drops_words_or_keeps_a_guess(self):
+        self.assertEqual(self.line("Ramp raised $20M in March.", why="Ramp's competitor Beta raised $20M in March."), ([], 1))
+        self.assertEqual(self.line("Ramp raised funding.", why="Ramp's former CEO left for Beta, which raised funding."), ([], 1))
+        self.assertEqual(self.line("Ramp opens an office in Austin.", why="May open an office in Austin."), ([], 0))
+        self.assertEqual(self.line("Ramp is likely hiring SDRs.", why="Is likely hiring SDRs."), ([], 0))
+        self.assertEqual(self.line("Ramp is hiring a Head of Outbound.", why="Hiring a Head of Outbound.")[0][0]["line"],
+                         "Ramp is hiring a Head of Outbound.")
+
     def test_the_signal_opens_and_a_site_fact_stands_in_without_one(self):
         customers = Customers(DemoCustomersApi(), Store(Path(tempfile.mkdtemp()) / "a.db"), DemoLlm(), demo_fetch)
         lines, _ = research_person(DemoLlm(), {**customers.api.pipeline_contacts(None)[0], "why": "Posted a night dispatcher role on Oct 28 that asks for clean shift handovers."}, demo_fetch)
