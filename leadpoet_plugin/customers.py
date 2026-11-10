@@ -36,6 +36,10 @@ MAX_OWN_WORDS = 6000
 MAX_SIGNATURE_CHARS = 1000
 _PASTE_INSTEAD = "No problem. Paste a few sentences about what you sell: /customers about <your text>"
 _LOCK = "customers"
+_JOB = "customers_job"
+_PARKED = "customers_parked"  # Other searches still running, so each one keeps moving.
+MAX_SEARCHES = 5
+_SETTLED = ("scanned", "done", "failed", "live")
 _SLOW_DOWN = "Leadpoet asked me to slow down. I'll carry on at the next check."
 # Leadpoet may clear these by itself, so a later check tries again without bothering anyone.
 _TRY_APPROVAL_AGAIN = {"READY_CHECK_UNAVAILABLE", "AUTOMATIC_RETRY", "CONTACT_PAUSED", "CAMPAIGN_NOT_ACTIVE"}
@@ -53,7 +57,8 @@ HELP = """/customers yoursite.com: find your customers
 /customers about <what you sell>: start from your own words
 /customers: see the next step
 /customers voice <a few lines you wrote>: match your writing
-/customers list: see everyone
+/customers list: see everyone, and your other searches
+/customers open <site>: switch to another search
 /customers all: read every email, then approve them together
 /customers check: refresh now
 /customers demo: try the whole thing, no account needed
@@ -125,8 +130,9 @@ def signature_then_footer(extra: str, compliance: dict) -> bool:
 
 class Customers:
     def __init__(self, api: Any, store: Any, llm: Any = None, fetcher: Any = None,
-                 now: Callable[[], float] = time.time, say: Callable[[str], Any] | None = None):
+                 now: Callable[[], float] = time.time, say: Callable[[str], Any] | None = None, key: str = _JOB):
         self.api, self.store, self.llm, self.fetcher, self.now, self.say = api, store, llm, fetcher, now, say
+        self.key = key
 
     def _progress(self, text: str) -> None:
         """A long model call shouldn't look like silence. A note that fails stops nothing."""
@@ -138,14 +144,38 @@ class Customers:
 
     # State -----------------------------------------------------------------------------------
     def job(self) -> dict | None:
-        raw = self.store.get("customers_job")
+        raw = self.store.get(self.key)
         try:
             return json.loads(raw) if raw else None
         except ValueError:  # Unreadable state must not trap someone: /customers reset has to work.
             return None
 
     def save(self, job: dict | None) -> None:
-        self.store.put("customers_job", json.dumps(job) if job else None)
+        self.store.put(self.key, json.dumps(job) if job else None)
+
+    # Other searches ----------------------------------------------------------------------------
+    def _parked(self) -> list[str]:
+        try:
+            keys = json.loads(self.store.get(_PARKED) or "[]")
+        except ValueError:
+            return []
+        return [key for key in keys if isinstance(key, str) and self.store.get(key)]
+
+    def _other(self, key: str) -> "Customers":
+        return Customers(self.api, self.store, self.llm, self.fetcher, self.now, self.say, key=key)
+
+    def _park(self, job: dict) -> None:
+        """A search that has spent credits keeps running in the background when a new one starts."""
+        key = f"{_JOB}:{job['id']}"
+        self._other(key).save(job)
+        self.store.put(_PARKED, json.dumps([*[k for k in self._parked() if k != key], key]))
+
+    def _room_for_another(self, job: dict | None) -> str:
+        if job and job.get("find_body"):
+            return self._unconfirmed_find(job)
+        if job and job["stage"] not in _SETTLED and len(self._parked()) >= MAX_SEARCHES - 1:
+            return f"You have {MAX_SEARCHES} searches going, the most at once. See them with /customers list"
+        return ""
 
     def _locked(self, work: Callable[[], str], busy: str) -> str:
         token = self.store.try_lock(_LOCK, self.now())
@@ -189,6 +219,8 @@ class Customers:
             return self._next(job, refresh=True)
         if action == "list":
             return self._listing(job)
+        if action == "open":
+            return self._open(job, argument)
         if action == "go":
             return self._go(job, argument)
         if action == "use":
@@ -219,16 +251,17 @@ class Customers:
                 "Or drop it anyway: /customers reset confirm")
 
     def start(self, site: str, job: dict | None = None, note: str = "") -> str:
-        if job and job.get("find_body"):
-            return self._unconfirmed_find(job)
-        if job and job["stage"] not in ("scanned", "done", "failed", "live"):
-            return "You have a search running. See it with /customers, or start over with /customers reset"
+        refused = self._room_for_another(job)
+        if refused:
+            return refused
         try:
             url = normalize_site(site)
         except SiteError as error:
             return error.args[0]
         try:
-            self._progress("Reading your site. This takes about 20 seconds.")
+            host = re.sub(r"^https?://(www\.)?", "", url).split("/")[0]
+            self._progress(f"Reading {host}: working out who buys from you, who makes the call, "
+                           "and the quotes that prove each claim. About 20 seconds.")
             scan = scan_site(url, fetcher=self.fetcher) if self.fetcher else scan_site(url)
         except SiteError as error:
             return f"{error.args[0]}\n\n{_PASTE_INSTEAD}"
@@ -237,10 +270,9 @@ class Customers:
     def _about(self, text: str) -> str:
         """Some sites turn readers away. The founder's own words are as good a source as their website."""
         job = self.job()
-        if job and job.get("find_body"):
-            return self._unconfirmed_find(job)
-        if job and job["stage"] not in ("scanned", "done", "failed", "live"):
-            return "You have a search running. See it with /customers, or start over with /customers reset"
+        refused = self._room_for_another(job)
+        if refused:
+            return refused
         if len(text) < 200:
             return "Paste a bit more: what you sell, who buys it, and any real numbers or customers.\n/customers about <your text>"
         self._progress("Reading what you wrote. This takes about 20 seconds.")
@@ -254,9 +286,14 @@ class Customers:
         created = {"id": code_for(source, str(self.now()))[:4] + hashlib.sha256(source.encode()).hexdigest()[:8],
                    "stage": "scanned", "brief": brief, "people": [], "emails": None, "voice_sample": "",
                    "created_at": self.now()}
-        self._retire(job)
+        if job and job["stage"] not in _SETTLED:
+            self._park(job)
+            note = f"{_site(job)} keeps running, and I'll ping you when it moves. Back to it: /customers open {_site(job)}\n\n"
+        else:
+            self._retire(job)
+            note = ""
         self.save(created)
-        return self._next(created)
+        return note + self._next(created)
 
     def _voice(self, sample: str) -> str:
         job = self.job()
@@ -309,8 +346,10 @@ class Customers:
         if companies < 1:
             return remaining
         brief = job["brief"]
-        return {"lead_type": "target_fit", "icp_name": f"{brief['product_name']} (Hermes)"[:120],
+        signals = briefs.signals_text(brief)
+        return {"lead_type": "high_intent" if signals else "target_fit", "icp_name": f"{brief['product_name']} (Hermes)"[:120],
                 "request_description": briefs.description(brief), "product_description": briefs.product_text(brief),
+                **({"intent_signals": signals} if signals else {}),
                 "max_leads": companies, "contacts_per_company": included, "included_contacts_per_company": included,
                 "credit_budget": companies * price, "contact_methods": {"email": True, "linkedin": False, "phone": False},
                 "requested_roles": brief["buyers"], "company_sizes": brief["company_sizes"], "countries": brief["countries"]}
@@ -323,6 +362,10 @@ class Customers:
             return "Leadpoet didn't return a price, so I didn't spend anything. Try again shortly."
         if isinstance(body, int):
             return self._hand_off(job, body)
+        quoted = job.get("quoted_credits")
+        if not retry and quoted and body["credit_budget"] != quoted:  # Never charge a different amount than was shown.
+            job.pop("quoted_credits", None)
+            return "Leadpoet's price changed since you looked, so nothing was spent.\n\n" + self._offer(job)
         job["find_body"] = body
         self.save(job)
         try:
@@ -779,8 +822,12 @@ class Customers:
         return self._locked(self._advance, "")
 
     def _advance(self) -> str:
+        texts = [self._advance_one(), *(self._other(key)._advance_one(parked=True) for key in self._parked())]
+        return "\n\n".join(text for text in texts if text)
+
+    def _advance_one(self, parked: bool = False) -> str:
         job = self.job()
-        if self.api is None:
+        if self.api is None or (parked and not job):
             return ""
         if not job:
             try:
@@ -793,10 +840,19 @@ class Customers:
         except ApiError:
             return ""  # A temporary failure. The next check tries again.
         if job["stage"] != before and job["stage"] in ("ready", "failed", "live"):
-            notes.insert(0, self._next(job))
+            notes.insert(0, self._parked_news(job) if parked else self._next(job))
         elif job.get("blocked") and job["blocked"] != told and job["blocked"] != _SLOW_DOWN:
             notes.insert(0, job["blocked"])
+        if parked and notes:
+            return f"{_site(job)}: " + "\n\n".join(notes)
         return "\n\n".join(notes)
+
+    def _parked_news(self, job: dict) -> str:
+        """Commands in a background search's news must not act on the search that's open."""
+        if job["stage"] == "ready":
+            return (f"{len(job['people'])} verified contacts are in.\n"
+                    f"Open it to write their emails: /customers open {_site(job)}")
+        return self._stage_text(job)
 
     def _refresh(self, job: dict) -> list[str]:
         if job["stage"] == "needs_credits":
@@ -848,8 +904,10 @@ class Customers:
         if stage == "finding" and job.get("delivered_empty"):
             return "Leadpoet finished, but I can't see a contact with an email yet. Check Pipeline in Leadpoet. /customers check looks again."
         if stage == "finding":
-            return ("Leadpoet is finding and verifying your contacts. This usually takes 1 to 2 days, because every contact is checked. "
-                    "I'll ping you the moment they're in. It costs no tokens while you wait.")
+            checked = "against your profile and for a recent buying signal" if job["brief"].get("signals") else "against your profile"
+            return (f"Leadpoet is on it. Each company is checked {checked}, "
+                    "and every contact is verified, so this usually takes 1 to 2 days.\n\n"
+                    "I'll message you here the moment they're in. Waiting costs no tokens.")
         if stage == "ready":
             return f"{len(job['people'])} verified contacts are in. Write their emails: /customers write"
         if stage == "writing":
@@ -875,18 +933,63 @@ class Customers:
     def _offer(self, job: dict) -> str:
         code = self._brief_code(job)
         if self.api is None:
-            return (f"Next, Leadpoet finds verified contacts. New accounts get 100 free credits, enough for 10 companies.\n"
-                    f"Ready? /customers go {code}")
+            return (f"Next, find {COMPANIES} companies with verified contacts.\n"
+                    "New Leadpoet accounts get 100 free credits, enough for this.\n\n"
+                    f"To confirm, reply:\n/customers go {code}")
         if getattr(self.api, "demo", False):
             return f"See how it finds prospects, using 3 made-up companies: /customers go {code}"
-        return f"Spend credits to find {COMPANIES} companies with verified contacts: /customers go {code}"
+        try:
+            price = int((self.api.contact_settings().get("pricing") or {}).get("credits_per_company") or 0)
+            balance = int(self.api.credits().get("credits_remaining") or 0)
+        except (ApiError, TypeError, ValueError):
+            price = balance = 0
+        if price <= 0:
+            return f"Next, find {COMPANIES} companies with verified contacts.\n\nTo confirm, reply:\n/customers go {code}"
+        cost = COMPANIES * price
+        job["quoted_credits"] = cost
+        self.save(job)
+        return (f"Next, find {COMPANIES} companies with verified contacts.\n"
+                f"Cost: {cost:,} credits. You have {balance:,}.\n\n"
+                f"To confirm, reply:\n/customers go {code}")
+
+    def _open(self, job: dict | None, site: str) -> str:
+        wanted = re.sub(r"^https?://(www\.)?", "", site.strip().lower()).split("/")[0]
+        others = [(key, self._other(key).job()) for key in self._parked()]
+        match = next(((key, other) for key, other in others if other and wanted and _site(other).lower() == wanted), None)
+        if match is None:
+            names = ", ".join(_site(other) for _, other in others if other)
+            return f"Your other searches: {names}\nOpen one: /customers open <site>" if names else "You have no other searches. Start one: /customers yoursite.com"
+        key, target = match
+        self.store.put(_PARKED, json.dumps([k for k in self._parked() if k != key]))
+        self._other(key).save(None)
+        if job and job["stage"] != "done":
+            self._park(job)  # Switching never loses a search, even one that hasn't spent anything.
+        self.save(target)
+        return self._next(target)
 
     def _listing(self, job: dict | None) -> str:
+        others = [other for other in (self._other(key).job() for key in self._parked()) if other]
+        here = self._people(job)
+        if not others:
+            return here
+        labels = {"scanned": "ready to confirm", "needs_key": "needs a Leadpoet key", "needs_credits": "waiting for credits", "finding": "finding contacts", "ready": "contacts are in",
+                  "writing": "writing", "reviewing": "waiting for you", "launching": "launching", "live": "live",
+                  "failed": "stopped", "done": "done"}
+        lines = [f"{_site(other)}: {labels.get(other['stage'], other['stage'])}" for other in others]
+        return (f"{here}\n\nOther searches:\n" + "\n".join(lines) + "\nOpen one: /customers open <site>")
+
+    def _people(self, job: dict | None) -> str:
         if not job or not job["people"]:
             return self._next(job)
         labels = {"research": "researching", "new": "waiting for you", "approved": "approved", "skipped": "skipped", "launched": "running", "held": "held back"}
         return "\n".join(f"{row['name']}, {row['company']}: {labels.get(row['state'], row['state'])}"
                          f"{'' if row['lines'] else ' (no personal line)'}" for row in job["people"])
+
+
+def _site(job: dict) -> str:
+    brief = job.get("brief") or {}
+    domain = str(brief.get("domain") or "")
+    return domain if domain and domain != "your-company" else str(brief.get("product_name") or job["id"])
 
 
 def _timestamp(value: Any) -> float | None:

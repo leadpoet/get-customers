@@ -53,10 +53,11 @@ It prints one `hermes cron create` line to run. The check uses no model, so it c
 
 | Command | What it does |
 | --- | --- |
-| `/customers yoursite.com` | Start |
+| `/customers yoursite.com` | Start a search. One already finding keeps running |
 | `/customers` | Show the next step |
 | `/customers voice <text>` | Match a few lines you really wrote |
-| `/customers list` | See everyone and where they stand |
+| `/customers list` | See everyone, and your other searches |
+| `/customers open <site>` | Switch to another search |
 | `/customers all` | Read every email, then approve them together |
 | `/customers check` | Refresh now |
 | `/customers reset` | Start over |
@@ -85,7 +86,8 @@ It prints one `hermes cron create` line to run. The check uses no model, so it c
 
 ## Good to know
 
-- Finding contacts usually takes 1 to 2 days, because every contact is verified. Hermes pings you.
+- The brief names one segment, its buyers and one or two buying signals a researcher can check, such as a posted role or a new office. Leadpoet looks for companies that show one recently.
+- Finding contacts usually takes 1 to 2 days. Each company is checked against your profile and its buying signal, and every contact is verified. Hermes messages you when they land.
 - A search is 10 companies, the smallest Leadpoet runs, which is exactly what the free credits buy.
 - Each person becomes their own small campaign in Leadpoet, because every email is different.
 - Sending needs a connected inbox and your sender details in Leadpoet. Hermes tells you if either is missing.

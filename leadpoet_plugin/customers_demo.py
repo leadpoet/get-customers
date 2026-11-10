@@ -32,7 +32,10 @@ _BRIEF = {
                "quote": "Sunnyday works on any phone, and the handover is waiting when the next shift starts", "url": f"{SELLER}/"}],
     "buyers": ["VP Operations", "Head of Logistics"], "company_fit": "Regional delivery and freight companies with shift-based drivers.",
     "industries": ["Freight", "Food distribution"], "company_sizes": ["50–200 employees"], "countries": [],
-    "exclude": ["Solo couriers"], "problem": "Shift handovers lose details and slow the next route.",
+    "exclude": ["Solo couriers"],
+    "signals": [{"type": "expansion", "detail": "opened a new depot or distribution center"},
+                {"type": "hiring", "detail": "posted a Dispatcher or Fleet Supervisor role"}],
+    "problem": "Shift handovers lose details and slow the next route.",
     "voice": "Plain, warm, short sentences, never salesy.",
 }
 _SEQUENCE = {"emails": [

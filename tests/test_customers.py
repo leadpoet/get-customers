@@ -98,6 +98,19 @@ class Case(unittest.TestCase):
 
 
 class FindCase(Case):
+    def test_the_offer_shows_the_exact_cost_and_balance(self):
+        self.assertIn("Cost: 100 credits. You have 100.", self.text)
+        self.assertIn("To confirm, reply:\n/customers go ", self.text)
+
+    def test_a_price_change_after_the_offer_spends_nothing(self):
+        code = self.code("go")
+        self.api.credits_left = 1000
+        self.api.contact_settings = lambda: {"included_contacts_per_company": 1, "pricing": {"credits_per_company": 12}}
+        text = self.customers.handle("go", code)
+        self.assertIn("price changed", text)
+        self.assertIn("Cost: 120 credits. You have 1,000.", text)
+        self.assertEqual(self.api.requests, [])
+
     def test_a_long_brief_still_fits_leadpoets_limits(self):
         # Shaped like the real leadpoet.com brief that Leadpoet refused on Nov 10.
         job = self.customers.job()
@@ -113,7 +126,26 @@ class FindCase(Case):
         self.assertLessEqual(len(body["product_description"]), 500)
         self.assertLessEqual(len(body["request_description"]), 500)
         self.assertIn("Fact 0:", body["product_description"])
-        self.assertNotIn("(source: https://leadpoet.com/abo", body["product_description"].split("about-us)")[-1])
+        self.assertNotIn("https://", body["product_description"])
+
+    def test_the_request_carries_checkable_buying_signals(self):
+        self.customers.handle("go", self.code("go"))
+        body = self.api.requests[0]
+        self.assertEqual(body["lead_type"], "high_intent")
+        self.assertEqual(body["intent_signals"], "Expansion: opened a new depot or distribution center (past 45 days)\n"
+                                                 "Hiring: posted a Dispatcher or Fleet Supervisor role (past 30 days)")
+        self.assertIn("for a recent buying signal", self.customers.handle("", ""))
+
+    def test_without_a_signal_it_never_claims_one(self):
+        job = self.customers.job()
+        job["brief"]["signals"] = []
+        self.customers.save(job)
+        self.text = self.customers.handle("", "")
+        self.customers.handle("go", self.code("go"))
+        body = self.api.requests[0]
+        self.assertEqual(body["lead_type"], "target_fit")
+        self.assertNotIn("intent_signals", body)
+        self.assertNotIn("signal", self.customers.handle("", ""))
 
     def test_a_wrong_code_spends_nothing(self):
         self.assertIn("doesn't match", self.customers.handle("go", "zzzz"))
@@ -999,6 +1031,79 @@ class RecipientClaimTests(unittest.TestCase):
         body = ("Hi {first_name},\n\n[[PERSONAL]]\n\nIf handovers slow {company} down, that is lost time. Plans start small [1]. "
                 "Would it help {company} to see an example?\n\n{sender}")
         self.assertIsNotNone(validate_sequence(self.sequence(body), self.brief))
+
+
+class SignalTests(unittest.TestCase):
+    def test_only_checkable_events_survive(self):
+        from leadpoet_plugin.brief import _signals
+        kept = _signals([
+            {"type": "hiring", "detail": "posted a Recruiter role"},
+            {"type": "intent", "detail": "is researching staffing software"},  # Not a type Leadpoet checks.
+            {"type": "launch", "detail": "is likely looking for new tools"},  # A guess, not an event.
+            {"type": "funding", "detail": "see https://evil.example"},
+            {"type": "hiring", "detail": "Posted a Recruiter role."},  # The same signal again.
+            {"type": "expansion", "detail": "opened a new branch office"},
+            {"type": "leadership", "detail": "named a new VP of Sales"},
+        ])
+        self.assertEqual([signal["detail"] for signal in kept], ["posted a Recruiter role", "opened a new branch office"])
+
+
+class ManySearchesCase(Case):
+    """A second site starts while the first is finding. Both keep moving, and nothing acts on the wrong one."""
+
+    OTHER = "https://other.example"
+
+    def setUp(self):
+        super().setUp()
+        self.customers.fetcher = self.fetch
+        self.customers.llm = self.Llm()
+        self.customers.handle("go", self.code("go"))  # The first search spends credits and starts finding.
+        self.api.credits_left = 100
+
+    class Llm(DemoLlm):
+        def complete(self, messages, **kwargs):
+            result = super().complete(messages, **kwargs)
+            page = messages[-1]["content"].split("PAGE ")[1].split()[0].rstrip("/")
+            return SimpleNamespace(text=result.text.replace(SELLER, page))
+
+    def fetch(self, url):
+        if not url.startswith(self.OTHER):
+            return demo_fetch(url)
+        return url if url.endswith("/") else url + "/", demo_fetch(SELLER)[1]
+
+    def test_a_new_site_keeps_the_running_search(self):
+        text = self.customers.handle(self.OTHER, "")
+        self.assertIn("keeps running", text)
+        self.assertIn("/customers open ", text)
+        self.assertEqual(self.customers.job()["brief"]["domain"], "other.example")
+        listing = self.customers.handle("list", "")
+        self.assertIn("Other searches:", listing)
+        self.assertIn(": finding contacts", listing)
+
+    def test_news_from_a_background_search_points_to_it(self):
+        first = self.customers.job()
+        self.customers.handle(self.OTHER, "")
+        self.api.state = "completed"
+        ping = self.customers.advance()
+        site = first["brief"]["domain"]
+        self.assertTrue(ping.startswith(f"{site}: "), ping)
+        self.assertIn(f"/customers open {site}", ping)
+        self.assertNotIn("/customers write", ping)  # That would write for the open search, not this one.
+        self.assertEqual(self.customers.job()["stage"], "scanned")
+        self.assertIn("verified contacts are in", self.customers.handle("open", site))
+        self.assertEqual(self.customers.job()["id"], first["id"])
+        self.assertIn("Other searches:\nother.example: ready to confirm", self.customers.handle("list", ""))
+
+    def test_open_without_a_match_lists_the_others(self):
+        self.customers.handle(self.OTHER, "")
+        self.assertIn("Your other searches: ", self.customers.handle("open", "nope.example"))
+
+    def test_there_is_a_limit(self):
+        from leadpoet_plugin.customers import MAX_SEARCHES
+        self.store.put("customers_parked", json.dumps([f"customers_job:x{n}" for n in range(MAX_SEARCHES - 1)]))
+        for n in range(MAX_SEARCHES - 1):
+            self.store.put(f"customers_job:x{n}", json.dumps({**self.customers.job(), "id": f"x{n}"}))
+        self.assertIn("the most at once", self.customers.handle(self.OTHER, ""))
 
 
 class ReasoningBudgetTests(unittest.TestCase):

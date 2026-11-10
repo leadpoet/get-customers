@@ -13,6 +13,14 @@ SIZE_LABELS = (
     "500–1,000 employees", "1,000–5,000 employees", "5,000–10,000 employees", "10,000+ employees",
 )
 MAX_FACTS = 5
+MAX_SIGNALS = 2  # Each signal narrows the market. One or two that predict a sale beat a long list.
+SIGNAL_MAX = 800  # Leadpoet's limit for buying signals.
+# Events a researcher can check, with how long Leadpoet keeps each kind fresh.
+SIGNAL_TYPES = {
+    "hiring": ("Hiring", 30), "funding": ("Funding", 120), "leadership": ("New leader", 45),
+    "launch": ("Launch", 45), "expansion": ("Expansion", 45), "technology": ("New technology", 45),
+}
+_GUESSWORK = re.compile(r"\b(intent|interest|interested|research\w*|looking for|visit\w*|might|may|likely|probably)\b", re.I)
 MAX_ROLES = 5
 ENOUGH_FACTS = 3
 _NOT_A_NAME = re.compile(r"https?:|www\.|@|\b[\w-]+\.[a-z]{2,}\b|[<>{}\[\]]", re.IGNORECASE)
@@ -25,9 +33,19 @@ _SYSTEM = (
     'from the page that prove it, copied character for character, and "url", that page\'s address. Code checks that every '
     'word of "text" is in "quote", in the same order, apart from the product name and small words like is, the and you, '
     'so never add a plan name, an audience, a benefit or any word the quote lacks. Pick quotes that make sense alone, on '
-    'what the product does, who uses it and real numbers), '
-    '"buyers" (up to 5 job titles who would buy), "company_fit" (one sentence on which companies fit), '
-    '"industries" (list), "company_sizes" (list, chosen only from: ' + "; ".join(SIZE_LABELS) + "), "
+    'what the product does, who uses it and real results, never prices or plan names), '
+    '"buyers" (up to 5 job titles, at the companies in company_fit, of the people who would buy this product because '
+    'they own the problem or the budget. Never the titles that those companies sell to), '
+    '"company_fit" (one sentence naming the single best segment: the kind of company, its size and what it does, '
+    'precise enough that a researcher could say yes or no to one company. Precise: "US staffing agencies with 10 to 200 '
+    'employees that place light industrial workers". Broad, never this: "B2B companies that want growth". When the site '
+    'serves several kinds of customer, choose the one with the most proof on the site and name only that one), '
+    '"industries" (at most 3, all inside that segment), '
+    '"signals" (1 or 2 objects with "type", one of: ' + ", ".join(SIGNAL_TYPES) + ', and "detail", a public event a '
+    'researcher can check at one company that makes now the time to buy, tied to the problem. Good: type hiring, '
+    'detail "posted a Recruiter or Account Manager role"; type expansion, detail "opened a new branch office". Never an '
+    'estimate of interest, such as web research, site visits or intent), '
+    '"company_sizes" (list, chosen only from: ' + "; ".join(SIZE_LABELS) + "), "
     '"countries" (full country names, only when the site makes a market clear, otherwise an empty list), '
     '"exclude" (list of company types that are a bad fit), "problem" (the problem the buyer has, in one '
     'sentence), "voice" (one sentence on how this company writes: its tone, its sentence length, what it avoids). '
@@ -86,16 +104,41 @@ def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = Non
         "facts": facts[:MAX_FACTS],
         "buyers": _strings(raw.get("buyers"), MAX_ROLES),
         "company_fit": _text(raw.get("company_fit"), 500),
-        "industries": _strings(raw.get("industries"), 8),
+        "industries": _strings(raw.get("industries"), 3),
         "company_sizes": [size for size in _strings(raw.get("company_sizes"), 8) if size in SIZE_LABELS],
         "countries": _strings(raw.get("countries"), 10),
         "exclude": _strings(raw.get("exclude"), 8),
+        "signals": _signals(raw.get("signals")),
         "problem": _text(raw.get("problem"), 400),
         "voice": _text(raw.get("voice"), 300),
     }
     if not brief["summary"] or not brief["buyers"] or not brief["company_fit"] or not brief["facts"]:
         return None
     return brief
+
+
+def _signals(value: Any) -> list[dict]:
+    """Keep checkable events only. A guess about interest is dropped, never sent as a signal."""
+    kept: list[dict] = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, dict) or item.get("type") not in SIGNAL_TYPES:
+            continue
+        detail = _text(item.get("detail"), 160).rstrip(".")
+        if len(detail) < 10 or _GUESSWORK.search(detail) or _NOT_A_NAME.search(detail):
+            continue
+        if all(old["detail"].lower() != detail.lower() for old in kept):
+            kept.append({"type": item["type"], "detail": detail})
+    return kept[:MAX_SIGNALS]
+
+
+def signal_line(signal: dict) -> str:
+    label, days = SIGNAL_TYPES[signal["type"]]
+    return f"{label}: {signal['detail']} (past {days} days)"
+
+
+def signals_text(brief: dict) -> str:
+    """Buying signals for a Leadpoet request, one per line as the app writes them."""
+    return fit([signal_line(signal) for signal in brief.get("signals") or []], SIGNAL_MAX)
 
 
 def write_brief(llm: Any, scan: Scan, note: str = "") -> dict | None:
@@ -135,7 +178,7 @@ def description(brief: dict) -> str:
 
 
 def product_text(brief: dict) -> str:
-    facts = [f"- {fact['text']} (source: {fact['url']})" for fact in brief["facts"]]
+    facts = [f"- {fact['text']}" for fact in brief["facts"]]  # Proven on the site. Links would only crowd the limit.
     head = f"{brief['product_name']}: {brief['summary']}"
     return fit([head, "Confirmed on the website:" if facts else "", *facts], FIELD_MAX)
 
@@ -155,14 +198,28 @@ def fit(parts: list[str], limit: int) -> str:
     return "\n".join(kept)
 
 
+def _page(url: str) -> str:
+    """A source as a person reads it: leadpoet.com/about-us."""
+    page = re.sub(r"^https?://(www\.)?", "", str(url)).rstrip("/")
+    return page or str(url)
+
+
 def card(brief: dict) -> str:
     """The brief, short enough to read on a phone."""
     lines = [f"{brief['product_name']}", brief["summary"], "",
-             f"Who to sell to: {brief['company_fit']}", "Buyers: " + ", ".join(brief["buyers"])]
+             f"Who to sell to: {brief['company_fit']}"]
+    if brief.get("problem"):
+        lines.append(f"Why they buy: {brief['problem']}")
+    lines.append("Buyers: " + ", ".join(brief["buyers"]))
     if brief["company_sizes"]:
         lines.append("Size: " + ", ".join(brief["company_sizes"]))
     if brief["countries"]:
         lines.append("Where: " + ", ".join(brief["countries"]))
-    lines += ["", "Proof from your site:"]
-    lines += [f"• {fact['text']}\n  {fact['url']}" for fact in brief["facts"]]
+    if brief.get("signals"):
+        lines += ["", "Buying signals:"] + [f"• {signal_line(signal)}" for signal in brief["signals"]]
+    pages: dict[str, list[str]] = {}
+    for fact in brief["facts"]:
+        pages.setdefault(_page(fact["url"]), []).append(fact["text"])
+    for page, texts in pages.items():  # One source line per page, not one link under every fact.
+        lines += ["", f"Proof from {page}:"] + [f"• {text}" for text in texts]
     return "\n".join(lines)
