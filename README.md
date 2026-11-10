@@ -8,7 +8,7 @@ Send your website. Get customers.
 
 **Find.** Hermes reads your site and fills Leadpoet's full lead request: who buys, the roles that decide, and the buying signals that say now is the time. Every fact it uses comes with the quote and page that prove it. Leadpoet then finds verified contacts at companies showing a recent signal.
 
-**Write.** Each person gets three emails in your voice. Hermes reads their company's site for something specific and quotes it. If the quote isn't really on that page, the line is thrown out. No source means no line.
+**Write.** Each person gets three emails in your voice. The first opens on the buying signal Leadpoet found, such as a role they just posted. Without one, Hermes reads their company's site for something specific and quotes it. If the quote isn't really on that page, the line is thrown out. No source means no line.
 
 **Launch.** You see each person's exact emails on your phone, with sources. One short code approves them.
 
