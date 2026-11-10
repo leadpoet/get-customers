@@ -1124,6 +1124,11 @@ class Customers:
     def _listing(self, job: dict | None) -> str:
         others = [other for other in (self._other(key).job() for key in self._parked()) if other]
         here = self._people(job)
+        past = self._past()
+        if past:  # Earlier searches' people still get their approved follow-ups, so they belong in "everyone".
+            shown = [f"{row.get('name')}, {row.get('company')}: running" for row in past[-10:]]
+            more = f"\nand {len(past) - 10} more" if len(past) > 10 else ""
+            here += "\n\nStill running from earlier searches:\n" + "\n".join(shown) + more
         if not others:
             return here
         labels = {"scanned": "ready to confirm", "needs_key": "needs a Leadpoet key", "needs_credits": "waiting for credits", "finding": "finding contacts", "ready": "contacts are in",

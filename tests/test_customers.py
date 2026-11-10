@@ -1213,6 +1213,15 @@ class ManySearchesCase(Case):
         self.assertIn("Started fresh", self.customers.handle("reset", "confirm"))
         self.assertIsNone(self.customers.job())
 
+    def test_list_shows_people_still_running_from_an_earlier_search(self):
+        rows = [{"id": f"p{n}", "name": f"Person {n}", "company": f"Co {n}", "state": "launched",
+                 "retired_at": self.customers.now()} for n in range(12)]
+        self.store.put("customers_past", json.dumps(rows))
+        listing = self.customers.handle("list", "")
+        self.assertIn("Still running from earlier searches:\nPerson 2, Co 2: running", listing)
+        self.assertIn("Person 11, Co 11: running\nand 2 more", listing)
+        self.assertNotIn("Person 1, Co 1:", listing)
+
     def test_there_is_a_limit(self):
         from leadpoet_plugin.customers import MAX_SEARCHES
         self.store.put("customers_parked", json.dumps([f"customers_job:x{n}" for n in range(MAX_SEARCHES - 1)]))
