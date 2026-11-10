@@ -107,6 +107,15 @@ class DeskCase(unittest.TestCase):
         _, desk = self.make([task(classification="referral")])
         self.assertIn("goes back to whoever wrote this", desk.show())
 
+    def test_a_referral_that_also_says_stop_shows_only_the_stop(self):
+        api, desk = self.make([])
+        api.tasks.append(task(classification="referral"))
+        api.inbound["e-t1"] = ("m1", "Talk to Sam instead, and please stop emailing me.")
+        desk.sync()
+        shown = desk.show()
+        self.assertIn("not to hear from you", shown)
+        self.assertNotIn("goes back to whoever wrote this", shown)
+
     def test_wrong_code_never_sends(self):
         api, desk = self.make()
         desk.show()

@@ -289,7 +289,7 @@ class Desk:
                  _age(item.get("received_at"), self.now())]
         parts = [notice] if notice else []
         parts += [" · ".join(fact for fact in facts if fact), _quote(item.get("inbound_text"))]
-        if item.get("classification") == "referral" and item["sendable"]:
+        if item.get("classification") == "referral" and item["sendable"] and hold not in _HOLD_TEXT:
             parts.append(f"A reply goes back to whoever wrote this. To write to the person they named, add them in Leadpoet: {INBOX_URL}")
         if item["state"] == "unknown":
             parts.append("Leadpoet didn't confirm the last send. Check the thread, or run the "
