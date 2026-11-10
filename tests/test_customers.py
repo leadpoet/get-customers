@@ -628,7 +628,7 @@ class ReviewFindingsCase(Case):
 
     def test_follow_ups_are_still_approved_after_a_reset(self):
         person = self.launched()
-        self.customers.handle("reset", "")
+        self.customers.handle("reset", "confirm")
         self.assertIsNone(self.customers.job())
         self.draft(person, 1)
         self.customers.advance()
@@ -637,7 +637,7 @@ class ReviewFindingsCase(Case):
 
     def test_old_people_stop_being_watched(self):
         person = self.launched()
-        self.customers.handle("reset", "")
+        self.customers.handle("reset", "confirm")
         self.customers.now = lambda: 40 * 86400 + __import__("time").time()
         self.draft(person, 1)
         self.customers.advance()
@@ -1097,6 +1097,12 @@ class ManySearchesCase(Case):
     def test_open_without_a_match_lists_the_others(self):
         self.customers.handle(self.OTHER, "")
         self.assertIn("Your other searches: ", self.customers.handle("open", "nope.example"))
+
+    def test_reset_keeps_a_paid_search_unless_confirmed(self):
+        self.assertIn("keep it unless you're sure", self.customers.handle("reset", ""))
+        self.assertEqual(self.customers.job()["stage"], "finding")
+        self.assertIn("Started fresh", self.customers.handle("reset", "confirm"))
+        self.assertIsNone(self.customers.job())
 
     def test_there_is_a_limit(self):
         from leadpoet_plugin.customers import MAX_SEARCHES

@@ -241,6 +241,10 @@ class Customers:
         job = self.job()
         if job and job.get("find_body") and argument.lower() != "confirm":
             return self._unconfirmed_find(job)
+        if job and job["stage"] not in (*_SETTLED, "needs_key", "needs_credits") and argument.lower() != "confirm":
+            return ("This search has spent credits, so I'll keep it unless you're sure.\n"
+                    "To look at another company, just send /customers othersite.com and this one keeps running.\n"
+                    "Drop it anyway: /customers reset confirm")
         self._retire(job)
         self.save(None)
         return "Started fresh. Send /customers yoursite.com"
