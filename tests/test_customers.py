@@ -1391,3 +1391,23 @@ class BreadthFindingsCase(unittest.TestCase):
                  {"text": "A high-intent account uses 10 credits", "quote": priced, "url": "https://a/", "said_by": "seller"},
                  {"text": "Linear plans from $49/mo", "quote": "Plans from $49/mo.", "url": "https://a/", "said_by": "seller"}]
         self.assertEqual([fact["quote"] for fact in validate_brief(self.raw(facts=facts), scan)["facts"]], [self.QUOTE])
+
+    def test_a_product_named_after_prices_or_a_numeral_keeps_its_facts(self):
+        kept = ["Corporate credit cards for startups that close the books faster.",
+                "Pricing intelligence for retail teams, refreshed every night.",
+                "Built for Series I and Series II rounds, with one login per user."]
+        scan = Scan("ramp.com", [Page("https://a/", "Ramp - Spend", " ".join(kept))])
+        facts = [{"text": quote, "quote": quote, "url": "https://a/", "said_by": "seller"} for quote in kept]
+        self.assertEqual([fact["quote"] for fact in validate_brief(self.raw(facts=facts), scan)["facts"]], kept)
+
+    def test_a_dropped_quote_says_why_so_the_retry_can_fix_it(self):
+        said = "I saved ten hours a week with it."
+        scan = Scan("linear.app", [Page("https://a/", "Linear - Plan", f"{self.QUOTE} {said} Plans from $49/mo.")])
+        facts = [{"text": self.QUOTE, "quote": self.QUOTE, "url": "https://a/", "said_by": "seller"},
+                 {"text": "Linear saves ten hours a week", "quote": said, "url": "https://a/", "said_by": "seller"},
+                 {"text": "Linear plans from $49/mo", "quote": "Plans from $49/mo.", "url": "https://a/", "said_by": "seller"}]
+        refused = []
+        validate_brief(self.raw(facts=facts), scan, refused)
+        self.assertEqual(len(refused), 2)
+        self.assertIn("customer's words", refused[0])
+        self.assertIn("price", refused[1])

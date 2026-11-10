@@ -135,8 +135,17 @@ def _product_name(raw: dict, scan: Scan) -> str:
     return name
 
 
-_PRICE = re.compile(r"[$€£¥]\s?\d|\b\d[\d,.]*\s?(usd|eur|gbp)\b|\bcredits?\b|\bper (month|year|seat|user)\b|/\s?(mo|month|yr|year|seat)\b|\bpric(e|es|ing)\b|\bbilled\b", re.IGNORECASE)
-_SINGULAR_VOICE = re.compile(r"\bI('m|'ve|'d)?\b|\b(?i:my|me)\b")
+# A price needs an amount: "credit cards for startups" or "pricing intelligence" is a product, not a price.
+_PRICE = re.compile(r"[$€£¥]\s?\d|\b\d[\d,.]*\s?(usd|eur|gbp|credits?)\b|\b\d[\d,.]*\s?(/|per|a|an)\s?(mo|month|year|yr|seat|user)\b|\bbilled (monthly|annually|yearly)\b", re.IGNORECASE)
+# "I" as a speaker, but not the Roman numeral in "Series I", "Type I" or "Phase I", nor "I/O".
+_SINGULAR_VOICE = re.compile(
+    r"\b(?i:my|me|myself|mine)\b|\bI'(m|ve|d|ll)\b"
+    r"|(?<!\bSeries )(?<!\bType )(?<!\bPhase )(?<!\bClass )(?<!\bGrade )(?<!\bLevel )(?<!\bTier )(?<!\bStage )"
+    r"(?<!\bPart )(?<!\bTitle )(?<!\bWave )(?<!-)\bI\b(?![/-])")
+
+
+def _singular_voice(quote: str) -> bool:
+    return bool(_SINGULAR_VOICE.search(quote))
 
 def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = None) -> dict | None:
     """Keep what the site proves. A brief with nothing to target with is refused."""
@@ -151,8 +160,12 @@ def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = Non
             continue
         text, quote, url = _text(fact.get("text"), 300), _text(fact.get("quote"), 400), _text(fact.get("url"), 2000)
         word = unsupported(text, quote, names=f"{product} {scan.domain.split('.')[0]}")
-        if fact.get("said_by") != "seller" or _SINGULAR_VOICE.search(quote) or _PRICE.search(quote):
-            continue  # A customer's words, put in the seller's mouth, would claim the customer's result as the seller's own.
+        # A customer's words, put in the seller's mouth, would claim the customer's result as the seller's own.
+        voice = "a customer's words" if fact.get("said_by") != "seller" or _singular_voice(quote) else ""
+        if voice or _PRICE.search(quote):
+            if refused is not None:
+                refused.append(f'"{text}" quotes {voice or "a price, which changes and is not a reason to buy"}.')
+            continue
         if len(text) >= 20 and quote_is_on_page(scan, url, quote) and not word:
             facts.append({"text": text, "quote": quote, "url": url})
         elif refused is not None:
