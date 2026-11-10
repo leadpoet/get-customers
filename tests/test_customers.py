@@ -37,6 +37,9 @@ class Api(DemoCustomersApi):
         self.keys.append(key)
         if self.fail_request:
             raise self.fail_request
+        for field in ("request_description", "product_description"):  # Leadpoet's own limit.
+            if len(body[field]) > 500:
+                raise ApiError("Lead request fields must be 500 characters or fewer", 400, code="lead_request_field_too_long")
         self.requests.append(body)
         return {"query_id": "demo-find", "icp_id": "icp-1", "credits_remaining": 0}
 
@@ -95,6 +98,23 @@ class Case(unittest.TestCase):
 
 
 class FindCase(Case):
+    def test_a_long_brief_still_fits_leadpoets_limits(self):
+        # Shaped like the real leadpoet.com brief that Leadpoet refused on Nov 10.
+        job = self.customers.job()
+        job["brief"]["summary"] = ("Leadpoet is B2B lead sourcing and outreach software that finds companies showing current "
+                                   "buying signals and runs personalized email and LinkedIn outreach for B2B sales teams.")
+        job["brief"]["facts"] = [{"text": f"Fact {n}: Leadpoet finds people in the roles you target and confirms they still work there.",
+                                  "quote": "q", "url": "https://leadpoet.com/about-us"} for n in range(6)]
+        job["brief"]["company_fit"] = "B2B companies that want a short list of accounts with a reason to talk now. " * 6
+        self.customers.save(job)
+        self.text = self.customers.handle("", "")
+        self.customers.handle("go", self.code("go"))
+        body = self.api.requests[0]
+        self.assertLessEqual(len(body["product_description"]), 500)
+        self.assertLessEqual(len(body["request_description"]), 500)
+        self.assertIn("Fact 0:", body["product_description"])
+        self.assertNotIn("(source: https://leadpoet.com/abo", body["product_description"].split("about-us)")[-1])
+
     def test_a_wrong_code_spends_nothing(self):
         self.assertIn("doesn't match", self.customers.handle("go", "zzzz"))
         self.assertEqual(self.api.requests, [])

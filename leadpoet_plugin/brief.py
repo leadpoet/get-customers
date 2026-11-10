@@ -119,6 +119,9 @@ def write_brief(llm: Any, scan: Scan, note: str = "") -> dict | None:
     return best
 
 
+FIELD_MAX = 500  # Leadpoet refuses a longer request or product description.
+
+
 def description(brief: dict) -> str:
     """The targeting text for a Leadpoet request."""
     parts = [f"Companies that fit: {brief['company_fit']}"]
@@ -128,12 +131,28 @@ def description(brief: dict) -> str:
         parts.append("Industries: " + ", ".join(brief["industries"]))
     if brief["exclude"]:
         parts.append("Leave out: " + ", ".join(brief["exclude"]))
-    return "\n".join(parts)
+    return fit(parts, FIELD_MAX)
 
 
 def product_text(brief: dict) -> str:
-    facts = "\n".join(f"- {fact['text']} (source: {fact['url']})" for fact in brief["facts"])
-    return f"{brief['product_name']}: {brief['summary']}\n\nConfirmed on the website:\n{facts}"[:20000]
+    facts = [f"- {fact['text']} (source: {fact['url']})" for fact in brief["facts"]]
+    head = f"{brief['product_name']}: {brief['summary']}"
+    return fit([head, "Confirmed on the website:" if facts else "", *facts], FIELD_MAX)
+
+
+def fit(parts: list[str], limit: int) -> str:
+    """Join whole lines up to Leadpoet's limit. A line that doesn't fit is left out, never cut halfway."""
+    kept: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if len("\n".join([*kept, part])) <= limit:
+            kept.append(part)
+        elif not kept:  # Even the first line is too long, so end it at a word.
+            kept.append(part[:limit - 1].rsplit(" ", 1)[0].rstrip(" ,;:") + "…")
+    if kept and kept[-1].endswith(":") and kept[-1].startswith("Confirmed on the website"):
+        kept.pop()
+    return "\n".join(kept)
 
 
 def card(brief: dict) -> str:
