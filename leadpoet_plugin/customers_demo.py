@@ -27,11 +27,11 @@ PEOPLE = [
 _BRIEF = {
     "product_name": "Sunnyday", "summary": "Sunnyday turns drivers' voice notes into clean shift handovers for delivery teams.",
     "facts": [{"text": "Drivers leave a voice note and Sunnyday turns it into a clean handover.",
-               "quote": "Drivers leave a voice note and Sunnyday turns it into a clean handover", "url": f"{SELLER}/"},
+               "said_by": "seller", "quote": "Drivers leave a voice note and Sunnyday turns it into a clean handover", "url": f"{SELLER}/"},
               {"text": "Teams cut handover time by 40 percent in the first month.",
-               "quote": "Teams cut handover time by 40 percent in the first month", "url": f"{SELLER}/"},
+               "said_by": "seller", "quote": "Teams cut handover time by 40 percent in the first month", "url": f"{SELLER}/"},
               {"text": "Sunnyday works on any phone, and the handover is waiting when the next shift starts.",
-               "quote": "Sunnyday works on any phone, and the handover is waiting when the next shift starts", "url": f"{SELLER}/"}],
+               "said_by": "seller", "quote": "Sunnyday works on any phone, and the handover is waiting when the next shift starts", "url": f"{SELLER}/"}],
     "roles": ["VP Operations", "Head of Logistics"],
     "buyer_description": "Regional delivery and freight companies with shift-based drivers.",
     "company_sizes": ["50–200 employees"], "countries": [], "exclude": ["Solo couriers"],
@@ -51,12 +51,12 @@ _SEQUENCE = {"emails": [
 ]}
 _LINES = {
     "Pinecrest Freight": {"lines": [{"line": "Pinecrest Freight runs cold-chain lanes out of Rotterdam six days a week.",
-                                     "quote": "We now run cold-chain lanes out of Rotterdam six days a week", "url": "https://pinecrest-freight.example/"}]},
+                                     "said_by": "seller", "quote": "We now run cold-chain lanes out of Rotterdam six days a week", "url": "https://pinecrest-freight.example/"}]},
     "Harbor Lane Roasters": {"lines": [{"line": "Your new wholesale program ships to independent cafes.",
-                                        "quote": "Our new wholesale program ships to independent cafes", "url": "https://harborlaneroasters.example/"}]},
+                                        "said_by": "seller", "quote": "Our new wholesale program ships to independent cafes", "url": "https://harborlaneroasters.example/"}]},
     # This one is wrong on purpose: the page never says it, so the check throws it out.
     "Tallgrass Dental": {"lines": [{"line": "Congrats on opening your third clinic in Omaha.",
-                                    "quote": "We just opened our third clinic in Omaha", "url": "https://tallgrassdental.example/"}]},
+                                    "said_by": "seller", "quote": "We just opened our third clinic in Omaha", "url": "https://tallgrassdental.example/"}]},
 }
 
 

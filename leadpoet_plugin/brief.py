@@ -66,7 +66,8 @@ _SYSTEM = (
     'sentence stating only what the site says the main product on the home page does and for whom; other pages are '
     'for proof, not for a different product), '
     '"facts" (up to 5 objects with "text", a claim the seller can make, "quote", the exact words '
-    'from the page that prove it, copied character for character, and "url", that page\'s address. Code checks that every '
+    'from the page that prove it, copied character for character, "url", that page\'s address, and "said_by", "seller" when the '
+    'company says it about itself or "customer" for a testimonial, review or case study quote. Code checks that every '
     'word of "text" is in "quote", in the same order, apart from the product name and small words like is, the and you, '
     'so never add a plan name, an audience, a benefit or any word the quote lacks. Pick quotes that make sense alone, on '
     'what the product does, who uses it and real results, never prices or plan names), '
@@ -134,6 +135,9 @@ def _product_name(raw: dict, scan: Scan) -> str:
     return name
 
 
+_PRICE = re.compile(r"[$€£¥]\s?\d|\b\d[\d,.]*\s?(usd|eur|gbp)\b|\bcredits?\b|\bper (month|year|seat|user)\b|/\s?(mo|month|yr|year|seat)\b|\bpric(e|es|ing)\b|\bbilled\b", re.IGNORECASE)
+_SINGULAR_VOICE = re.compile(r"\bI('m|'ve|'d)?\b|\b(?i:my|me)\b")
+
 def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = None) -> dict | None:
     """Keep what the site proves. A brief with nothing to target with is refused."""
     if not raw:
@@ -147,6 +151,8 @@ def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = Non
             continue
         text, quote, url = _text(fact.get("text"), 300), _text(fact.get("quote"), 400), _text(fact.get("url"), 2000)
         word = unsupported(text, quote, names=f"{product} {scan.domain.split('.')[0]}")
+        if fact.get("said_by") != "seller" or _SINGULAR_VOICE.search(quote) or _PRICE.search(quote):
+            continue  # A customer's words, put in the seller's mouth, would claim the customer's result as the seller's own.
         if len(text) >= 20 and quote_is_on_page(scan, url, quote) and not word:
             facts.append({"text": text, "quote": quote, "url": url})
         elif refused is not None:

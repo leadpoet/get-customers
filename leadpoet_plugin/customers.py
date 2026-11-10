@@ -640,8 +640,35 @@ class Customers:
         return "\n".join(lines)
 
     def _all_emails(self, job: dict, new: list[dict]) -> str:
-        """The code for approving everyone is shown only under everything it approves."""
-        blocks = ["\n".join(self._emails(person)) for person in new]
+        """The code for approving everyone is shown only under everything it approves.
+
+        Emails that differ only by name, company and personal line are shown once. Each person's are rebuilt from that
+        shared text first, so what is shown is exactly what is approved."""
+        sender = self._sender_name(job)
+        shared = [person for person in new if len(person["lines"]) <= 1 and job.get("emails")
+                  and person["touches"] == render(job["emails"], person, person["lines"], sender)]
+        if len(shared) < 2:
+            shared = []
+        blocks = []
+        if shared:
+            template = render(job["emails"], {"name": "[name]", "company": "[company]"}, [{"line": "[their personal line]"}], sender)
+            lines = [f"The same {len(template)} emails go to {'both' if len(shared) == 2 else f'all {len(shared)}'} of the people below, "
+                     "with their name, company and personal line filled in.", ""]
+            for number, touch in enumerate(template, 1):
+                when = "first" if touch["delay"] == 0 else f"{touch['delay']} business days after the last one"
+                lines += [f"Email {number} ({when}): {touch['subject']}", touch["body"], ""]
+            blocks.append("\n".join(lines))
+            for person in shared:
+                row = [f"{person['name']}, {person['role']} at {person['company']}", person["email"]]
+                if person.get("why"):
+                    row.append(f"Why them: {person['why']}")
+                for entry in person["lines"]:
+                    row += [f"Personal line: {entry['line']}",
+                            f"Source: \"{entry['quote']}\" {entry['url']}" if entry["url"] else "Source: Leadpoet's note above"]
+                if not person["lines"]:
+                    row.append("No personal line I could prove, so email 1 goes without one.")
+                blocks.append("\n".join(row) + "\n")
+        blocks += ["\n".join(self._emails(person)) for person in new if person not in shared]
         return "\n---\n\n".join(blocks) + f"\nApprove {'these' if len(new) == 1 else f'all {len(new)}'} exactly as shown: /customers all {self._all_code(job, new)}"
 
     # Approve and launch ----------------------------------------------------------------------
@@ -1020,7 +1047,7 @@ class Customers:
         if stage == "launching":
             done = sum(1 for row in job["people"] if row["state"] == "launched")
             total = sum(1 for row in job["people"] if row["state"] in ("approved", "launched"))
-            return job.get("blocked") or f"Launching: {done} of {total} ready. I'll carry on and ping you."
+            return job.get("blocked") or f"Launching: {done} of {total} set up in Leadpoet. I'll carry on and ping you."
         if stage == "live":
             launched = sum(1 for row in job["people"] if row["state"] == "launched")
             held = [row for row in job["people"] if row["state"] == "held"]

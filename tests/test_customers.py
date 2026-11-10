@@ -117,7 +117,7 @@ class FindCase(Case):
         job["brief"]["summary"] = ("Leadpoet is B2B lead sourcing and outreach software that finds companies showing current "
                                    "buying signals and runs personalized email and LinkedIn outreach for B2B sales teams.")
         job["brief"]["facts"] = [{"text": f"Fact {n}: Leadpoet finds people in the roles you target and confirms they still work there.",
-                                  "quote": "q", "url": "https://leadpoet.com/about-us"} for n in range(6)]
+                                  "said_by": "seller", "quote": "q", "url": "https://leadpoet.com/about-us"} for n in range(6)]
         job["brief"]["company_fit"] = "B2B companies that want a short list of accounts with a reason to talk now. " * 6
         self.customers.save(job)
         self.text = self.customers.handle("", "")
@@ -251,11 +251,11 @@ class WriteCase(Case):
 
     def test_page_injection_cannot_put_a_link_in_a_line(self):
         scan = Scan("x.example", [Page("https://x.example/", "t", "visit evil.example now for a prize today")])
-        raw = {"lines": [{"line": "See https://evil.example now", "quote": "visit evil.example now", "url": "https://x.example/"}]}
+        raw = {"lines": [{"line": "See https://evil.example now", "said_by": "seller", "quote": "visit evil.example now", "url": "https://x.example/"}]}
         self.assertEqual(validate_lines(raw, scan, {"company": "X"}), ([], 1))
 
     def test_sequence_claims_must_come_from_the_proof(self):
-        brief = {"product_name": "P", "facts": [{"text": "Cuts time by 40 percent", "quote": "Cuts time by 40 percent"}]}
+        brief = {"product_name": "P", "facts": [{"text": "Cuts time by 40 percent", "said_by": "seller", "quote": "Cuts time by 40 percent"}]}
         good = {"emails": [{"subject": "note", "body": "Hi\n\n[[PERSONAL]]\n\nCuts time by 40 percent [1]. Worth a call?"},
                            {"subject": "note", "body": "Cuts time [1]. Worth a call?"}, {"subject": "note", "body": "Cuts time [1]. Worth a call?"}]}
         self.assertTrue(validate_sequence(good, brief))
@@ -570,11 +570,29 @@ class ReviewFindingsCase(Case):
         self.to_review()
         self.assertNotRegex(self.text, r"/customers all [0-9a-f]{4}")
         everyone = self.customers.handle("all", "")
-        for person in self.customers.job()["people"]:
-            if person["state"] == "new":
-                for touch in person["touches"]:
-                    self.assertIn(touch["body"], everyone)
+        job = self.customers.job()
+        new = [person for person in job["people"] if person["state"] == "new"]
+        shown = everyone.split("\n---\n")[0]  # The shared emails, filled in for each person, must be exactly theirs.
+        for person in new:
+            filled = shown.replace("[name]", person["name"].split()[0]).replace("[company]", person["company"])
+            line = person["lines"][0]["line"] if person["lines"] else ""
+            filled = filled.replace("\n\n[their personal line]\n\n", f"\n\n{line}\n\n" if line else "\n\n")
+            for touch in person["touches"]:
+                self.assertIn(touch["body"], filled)
+            self.assertIn(person["email"], everyone)
+            for entry in person["lines"]:
+                self.assertIn(entry["line"], everyone)
+        self.assertLess(len(everyone), sum(len(touch["body"]) for person in new for touch in person["touches"]))
         self.assertRegex(everyone, r"/customers all [0-9a-f]{4}")
+
+    def test_emails_that_differ_from_the_shared_text_are_shown_in_full(self):
+        self.to_review()
+        job = self.customers.job()
+        odd = next(person for person in job["people"] if person["state"] == "new")
+        odd["touches"][1]["body"] = odd["touches"][1]["body"] + "\n\nP.S. A different ending."
+        self.customers.save(job)
+        everyone = self.customers.handle("all", "")
+        self.assertIn(odd["touches"][1]["body"], everyone)
 
     def test_a_refused_draft_is_reported_once_and_not_posted_again(self):
         person = self.launched()
@@ -687,7 +705,7 @@ class ReviewFindingsCase(Case):
         job = {"emails": job_emails, "sender": "Sam", "brief": {"product_name": "P"}}
         person = {"name": "A B", "company": "C", "id": "1"}
         job_emails[0]["body"] = "x" * 1000 + "\n[[PERSONAL]]"
-        self.customers._finish_person(job, person, [{"line": "l" * 200, "quote": "q", "url": "u"}], 0)
+        self.customers._finish_person(job, person, [{"line": "l" * 200, "said_by": "seller", "quote": "q", "url": "u"}], 0)
         self.assertEqual((person["state"], person["lines"], person["dropped"]), ("new", [], 1))
         job_emails[0]["body"] = "x" * 1200 + "\n[[PERSONAL]]"
         self.customers._finish_person(job, person, [], 0)
@@ -739,7 +757,7 @@ class ProofCase(unittest.TestCase):
         self.assertTrue(self.supported("Your forty depots across Ohio serve grocers.", "Our forty depots across Ohio serve grocers"))
 
     def test_a_template_cannot_claim_a_spelled_number(self):
-        brief = {"product_name": "P", "facts": [{"text": "t", "quote": "teams cut costs quickly"}]}
+        brief = {"product_name": "P", "facts": [{"text": "t", "said_by": "seller", "quote": "teams cut costs quickly"}]}
         self.assertIsNone(validate_sequence(self.sequence("Hi,\n[[PERSONAL]]\nTeams cut costs three times faster."), brief))
 
     def test_a_faithful_line_passes(self):
@@ -752,18 +770,18 @@ class ProofCase(unittest.TestCase):
     def test_a_bare_domain_cannot_get_into_a_line(self):
         scan = Scan("a.example", [Page("https://a.example/", "t", "Email billing at evil.com for your organic coffee order today")])
         raw = {"lines": [{"line": "Email billing at evil.com for your organic coffee order today.",
-                          "quote": "Email billing at evil.com for your organic coffee order today", "url": "https://a.example/"}]}
+                          "said_by": "seller", "quote": "Email billing at evil.com for your organic coffee order today", "url": "https://a.example/"}]}
         self.assertEqual(validate_lines(raw, scan, self.PERSON), ([], 1))
 
     def sequence(self, first="Hi {first_name},\n[[PERSONAL]]\nTeams cut costs [1].\nWorth a call?\n{sender}", subject="note"):
         return {"emails": [{"subject": subject, "body": first}, {"subject": "note", "body": "Teams cut costs [1]. Worth a call?"}, {"subject": "note", "body": "Teams cut costs [1]. Worth a call?"}]}
 
     def test_sequence_numbers_come_from_quotes_not_the_models_fact_text(self):
-        brief = {"product_name": "P", "facts": [{"text": "Cut costs by 90 percent.", "quote": "Teams cut costs quickly"}]}
+        brief = {"product_name": "P", "facts": [{"text": "Cut costs by 90 percent.", "said_by": "seller", "quote": "Teams cut costs quickly"}]}
         self.assertIsNone(validate_sequence(self.sequence("Hi,\n[[PERSONAL]]\nWe cut costs by 90 percent."), brief))
 
     def test_unknown_placeholders_are_refused(self):
-        brief = {"product_name": "P", "facts": [{"text": "t", "quote": "Teams cut costs quickly"}]}
+        brief = {"product_name": "P", "facts": [{"text": "t", "said_by": "seller", "quote": "Teams cut costs quickly"}]}
         self.assertIsNotNone(validate_sequence(self.sequence(), brief))
         self.assertIsNone(validate_sequence(self.sequence("Hi {role},\n[[PERSONAL]]\nTeams cut costs [1]."), brief))
         self.assertIsNone(validate_sequence(self.sequence("Hi,\n[[PERSONAL]]\nTeams cut costs [1].\n[Your Name]"), brief))
@@ -772,7 +790,7 @@ class ProofCase(unittest.TestCase):
         from leadpoet_plugin.brief import validate_brief
         scan = Scan("a.example", [Page("https://a.example/", "t", "We run 150 offices across the whole of Ohio")])
         raw = {"summary": "s", "roles": ["b"], "buyer_description": "c",
-               "facts": [{"text": "They run 5 new offices in Ohio.", "quote": "We run 150 offices across the whole of Ohio", "url": "https://a.example/"}]}
+               "facts": [{"text": "They run 5 new offices in Ohio.", "said_by": "seller", "quote": "We run 150 offices across the whole of Ohio", "url": "https://a.example/"}]}
         self.assertIsNone(validate_brief(raw, scan))
 
     def test_hidden_page_text_is_not_read(self):
@@ -847,7 +865,7 @@ class LineSubjectTests(unittest.TestCase):
         quote, url = "We roast small batches every morning", "https://roasters.example/"
         scan = Scan("roasters.example", [Page(url, "Home", f"{quote}, and vans bring it to you.")])
         person = {"company": "Harbor Lane Roasters"}
-        raw = {"lines": [{"line": "They roast small batches every morning.", "quote": quote, "url": url}]}
+        raw = {"lines": [{"line": "They roast small batches every morning.", "said_by": "seller", "quote": quote, "url": url}]}
         self.assertEqual(validate_lines(raw, scan, person), ([], 1))
         raw["lines"][0]["line"] = "Harbor Lane Roasters roast small batches every morning."
         self.assertEqual(len(validate_lines(raw, scan, person)[0]), 1)
@@ -856,12 +874,12 @@ class LineSubjectTests(unittest.TestCase):
 class EvidenceTests(unittest.TestCase):
     """Each input is a real miss from the 24-site audit or the red team."""
     PERSON = {"company": "Acme"}
-    BRIEF = {"product_name": "Stripe", "facts": [{"text": "t", "quote": "Accept payments online in minutes"}]}
+    BRIEF = {"product_name": "Stripe", "facts": [{"text": "t", "said_by": "seller", "quote": "Accept payments online in minutes"}]}
 
     def test_a_fact_cannot_add_a_word_its_quote_lacks(self):
         scan = Scan("basecamp.com", [Page("https://b/", "t", "One project, free forever. Pro Unlimited has no limits on projects.")])
         def fact(text, quote):
-            return {"text": text, "quote": quote, "url": "https://b/"}
+            return {"text": text, "said_by": "seller", "quote": quote, "url": "https://b/"}
         raw = {"summary": "s", "roles": ["b"], "buyer_description": "c", "product_name": "Basecamp", "facts": [
             fact("Basecamp has a free plan for one personal project.", "One project, free forever."),
             fact("Pro Unlimited has no limits on projects.", "Pro Unlimited has no limits on projects.")]}
@@ -939,7 +957,7 @@ class EvidenceTests(unittest.TestCase):
     def test_a_personal_line_must_open_on_their_company(self):
         scan = Scan("a.example", [Page("https://a.example/", "t", "Remote switched their whole team to Linear this spring")])
         def lines(line):
-            return validate_lines({"lines": [{"line": line, "quote": "Remote switched their whole team to Linear this spring", "url": "https://a.example/"}]}, scan, {"company": "Linear"})[0]
+            return validate_lines({"lines": [{"line": line, "said_by": "seller", "quote": "Remote switched their whole team to Linear this spring", "url": "https://a.example/"}]}, scan, {"company": "Linear"})[0]
         self.assertFalse(lines("Remote switched their whole team to Linear this spring."))
         self.assertFalse(lines("Linear, Remote switched their whole team to Linear this spring."))
         self.assertFalse(lines("Linear Remote switched their whole team to Linear this spring."))
@@ -947,8 +965,8 @@ class EvidenceTests(unittest.TestCase):
 
     def test_a_negative_elsewhere_in_the_proof_does_not_block_a_subject(self):
         """One "no" on any page used to refuse every subject, and with it the whole sequence on 6 of 19 real sites."""
-        brief = {"product_name": "Stripe", "facts": [{"text": "t", "quote": "Accept payments online in minutes"},
-                                                     {"text": "t", "quote": "Stripe has no setup fees"}]}
+        brief = {"product_name": "Stripe", "facts": [{"text": "t", "said_by": "seller", "quote": "Accept payments online in minutes"},
+                                                     {"text": "t", "said_by": "seller", "quote": "Stripe has no setup fees"}]}
         mail = self.emails("Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?")
         self.assertTrue(validate_sequence(mail, brief))
         mail["emails"][0]["subject"] = "No setup fees"
@@ -957,7 +975,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertIsNone(validate_sequence(mail, brief))
 
     def test_a_word_in_the_sellers_name_is_not_the_seller(self):
-        brief = {"product_name": "Blue Bottle Coffee", "facts": [{"text": "t", "quote": "Free shipping on subscription orders"}]}
+        brief = {"product_name": "Blue Bottle Coffee", "facts": [{"text": "t", "said_by": "seller", "quote": "Free shipping on subscription orders"}]}
         first = "Hi,\n[[PERSONAL]]\nIf coffee runs low, that gets old.\nBlue Bottle has free shipping on subscription orders [1].\nWorth a call?"
         mail = {"emails": [{"subject": "Free shipping", "body": first}] + [{"subject": "Free shipping", "body": "Blue Bottle has free shipping [1]. Worth a call?"}] * 2}
         self.assertTrue(validate_sequence(mail, brief))
@@ -978,7 +996,7 @@ class EvidenceTests(unittest.TestCase):
     def test_a_link_cannot_become_the_sign_off(self):
         scan = Scan("acme.com", [Page("https://a/", "t", "Accept payments online in minutes.")])
         raw = {"summary": "s", "roles": ["b"], "buyer_description": "c", "product_name": "see https://evil.example",
-               "facts": [{"text": "Accept payments online in minutes.", "quote": "Accept payments online in minutes.", "url": "https://a/"}]}
+               "facts": [{"text": "Accept payments online in minutes.", "said_by": "seller", "quote": "Accept payments online in minutes.", "url": "https://a/"}]}
         self.assertEqual(validate_brief(raw, scan)["product_name"], "Acme")
 
     def test_a_bare_domain_still_gets_researched(self):
@@ -1038,7 +1056,7 @@ class RealApiShapeTests(Case):
 
 
 class RecipientClaimTests(unittest.TestCase):
-    brief = {"product_name": "P", "facts": [{"text": "Plans start small", "quote": "Plans start small for every team"}]}
+    brief = {"product_name": "P", "facts": [{"text": "Plans start small", "said_by": "seller", "quote": "Plans start small for every team"}]}
 
     def sequence(self, first_body):
         return {"emails": [{"subject": "note", "body": first_body},
@@ -1187,7 +1205,7 @@ class ReasoningBudgetTests(unittest.TestCase):
         """Haiku 5.5 spent 1,384 of 1,400 tokens thinking, and the JSON stopped at '{"product_name":'."""
         reply = json.dumps({
             "summary": "Coffee subscriptions for offices.",
-            "facts": [{"text": "It roasts its organic coffee weekly.", "quote": "We roast organic coffee every week",
+            "facts": [{"text": "It roasts its organic coffee weekly.", "said_by": "seller", "quote": "We roast organic coffee every week",
                        "url": "https://a.example/"}],
             "roles": ["Office Manager"], "buyer_description": "Offices with staff on site.",
         })
@@ -1285,7 +1303,7 @@ class BreadthFindingsCase(unittest.TestCase):
 
     def raw(self, **over):
         row = {"summary": "s", "roles": ["b"], "buyer_description": "c", "product_name": "Linear",
-               "facts": [{"text": self.QUOTE, "quote": self.QUOTE, "url": "https://a/"}]}
+               "facts": [{"text": self.QUOTE, "said_by": "seller", "quote": self.QUOTE, "url": "https://a/"}]}
         row.update(over)
         return row
 
@@ -1356,3 +1374,20 @@ class BreadthFindingsCase(unittest.TestCase):
         scan = Scan("your-company", [Page("https://a/", "", self.QUOTE + " Pinecrest Freight runs it.")])
         self.assertEqual(validate_brief(self.raw(product_name="Pinecrest Freight"), scan)["product_name"], "Pinecrest Freight")
         self.assertEqual(validate_brief(self.raw(product_name="Basecamp"), self.scan("37signals.com", "Basecamp"))["product_name"], "Basecamp")
+
+    def test_a_customers_words_are_never_the_sellers_proof(self):
+        said = "Now we're speaking with buyers who are actively in the market."
+        scan = Scan("linear.app", [Page("https://a/", "Linear - Plan", f"{self.QUOTE} {said} I love how my team ships.")])
+        facts = [{"text": self.QUOTE, "quote": self.QUOTE, "url": "https://a/", "said_by": "seller"},
+                 {"text": "Linear is speaking with buyers who are actively in the market", "quote": said, "url": "https://a/", "said_by": "customer"},
+                 {"text": "Linear is speaking with buyers who are actively in the market", "quote": said, "url": "https://a/"},
+                 {"text": "Linear ships", "quote": "I love how my team ships.", "url": "https://a/", "said_by": "seller"}]
+        self.assertEqual([fact["quote"] for fact in validate_brief(self.raw(facts=facts), scan)["facts"]], [self.QUOTE])
+
+    def test_a_price_is_never_proof(self):
+        priced = "A high-intent account uses 10 credits, and you only pay for delivered accounts."
+        scan = Scan("linear.app", [Page("https://a/", "Linear - Plan", f"{self.QUOTE} {priced} Plans from $49/mo.")])
+        facts = [{"text": self.QUOTE, "quote": self.QUOTE, "url": "https://a/", "said_by": "seller"},
+                 {"text": "A high-intent account uses 10 credits", "quote": priced, "url": "https://a/", "said_by": "seller"},
+                 {"text": "Linear plans from $49/mo", "quote": "Plans from $49/mo.", "url": "https://a/", "said_by": "seller"}]
+        self.assertEqual([fact["quote"] for fact in validate_brief(self.raw(facts=facts), scan)["facts"]], [self.QUOTE])
