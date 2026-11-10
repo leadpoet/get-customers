@@ -328,6 +328,8 @@ class LaunchCase(Case):
             {"lead_id": "demo-marcus", "display_state": "sent", "scheduled_for": at(10)},
             {"lead_id": "demo-priya", "display_state": "scheduled", "scheduled_for": at(181)}]
         self.assertIn("The next email goes out in about 3 hours.", self.customers.handle("", ""))
+        self.api.queued_messages = lambda: [{"lead_id": "demo-priya", "display_state": "queued", "scheduled_for": at(-15)}]
+        self.assertIn("The next email is due now.", self.customers.handle("", ""))
         def broken():
             raise ApiError("down", 503)
         self.api.queued_messages = broken

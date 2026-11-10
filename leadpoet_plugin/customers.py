@@ -1070,11 +1070,16 @@ class Customers:
         ours = {row["id"] for row in job["people"] if row["state"] == "launched"}
         try:
             times = [_timestamp(row.get("scheduled_for") or row.get("estimated_send_at")) for row in self.api.queued_messages()
-                     if str(row.get("lead_id")) in ours and row.get("display_state") == "scheduled"]
+                     if str(row.get("lead_id")) in ours and row.get("display_state") in ("scheduled", "queued")]
         except ApiError:
             return ""
         times = [moment for moment in times if moment]
-        return f"\nThe next email goes out {_from_now(min(times) - time.time())}." if times else ""
+        if not times:
+            return ""
+        wait = min(times) - time.time()
+        if wait < 120:  # Due, and waiting its turn: Leadpoet spaces each inbox's sends so they read as one person's.
+            return "\nThe next email is due now. Leadpoet spaces out each inbox's sends, so it may take a little while."
+        return f"\nThe next email goes out {_from_now(wait)}."
 
     def _offer(self, job: dict) -> str:
         code = self._brief_code(job)
