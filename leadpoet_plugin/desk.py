@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -33,7 +34,7 @@ _STOP_WORDS = re.compile(
     r"abmelden|entfernen sie mich|nicht mehr (kontaktieren|schreiben)|d[eé]sabonner|d[eé]sinscri\w+|"
     r"ne (plus )?me contactez|darme de baja|no me (contacten|escriban)|unsubscrib\w*|cease\b|no (more|further) "
     r"(emails?|messages?|contact|outreach)|never (contact|email|message|write)|stop (reaching|reach) out)\b|"
-    r"\bstop\b[^.?!\n]{0,40}\b(reach\w*|email\w*|contact\w*|messag\w*|writ\w*|send\w*)|^\W*(please\W+)?stop\b",
+    r"\bstop\b(?!\s+by\b)[^.?!\n]{0,40}\b(reach\w*|email\w*|contact\w*|messag\w*|writ\w*|send\w*)|^\W*(please\W+)?stop\b(?!\s+by\b)",
     re.IGNORECASE)
 _PRIVACY_WORDS = re.compile(
     r"\b(gdpr|ccpa|dsgvo|data protection|right to (erasure|be forgotten)|delete (all |any )?(of )?(my|personal) (data|information|details)|"
@@ -68,7 +69,8 @@ def clean_draft(text: str | None) -> str | None:
     """Prepare text for sending. Leadpoet refuses em dashes, so they never reach it."""
     if not text:
         return None
-    cleaned = re.sub(r"\s*[—]\s*", ", ", text)
+    cleaned = unicodedata.normalize("NFKC", re.sub(r"[\u200b-\u200f\u2060\ufeff]", "", text))  # No invisible gaps or lookalike slashes.
+    cleaned = re.sub(r"\s*[—]\s*", ", ", cleaned)
     # A draft is shown above the real send line, so it can't carry commands or hide text below a gap.
     cleaned = "\n".join(line for line in cleaned.splitlines() if not re.match(r"\s*/(desk|customers)\b", line, re.IGNORECASE))
     cleaned = re.sub(r"\n\s*\n(\s*\n)+", "\n\n", cleaned).strip()
@@ -151,7 +153,9 @@ class Desk:
     def sync(self) -> dict:
         """Match local state to Leadpoet. A reply Leadpoet no longer lists is closed here."""
         data = self.api.list_replies()
-        tasks = [t for t in data.get("tasks", []) if isinstance(t, dict) and t.get("id")]
+        if not isinstance(data.get("tasks"), list):  # An empty list here would close every open reply.
+            raise ApiError(0, "Leadpoet sent a list it couldn't read.")
+        tasks = [t for t in data["tasks"] if isinstance(t, dict) and t.get("id") and t.get("enrollment_id")]
         listed = {t["id"] for t in tasks if _is_answerable(t)}
         reads = 0
         for task in tasks:

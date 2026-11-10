@@ -1351,3 +1351,8 @@ class BreadthFindingsCase(unittest.TestCase):
     def test_a_regulatory_order_is_never_a_personal_line(self):
         from leadpoet_plugin.writer import _SENSITIVE
         self.assertTrue(_SENSITIVE.search("Austin ISD was released from the TEA Special Education Agreed Order."))
+
+    def test_your_own_words_keep_your_company_name(self):
+        scan = Scan("your-company", [Page("https://a/", "", self.QUOTE + " Pinecrest Freight runs it.")])
+        self.assertEqual(validate_brief(self.raw(product_name="Pinecrest Freight"), scan)["product_name"], "Pinecrest Freight")
+        self.assertEqual(validate_brief(self.raw(product_name="Basecamp"), self.scan("37signals.com", "Basecamp"))["product_name"], "Basecamp")

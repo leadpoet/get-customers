@@ -344,11 +344,11 @@ class Customers:
 
     def _running(self, job: dict | None, host: str) -> str:
         """Starting the same site again would ask to spend twice."""
-        if job and job["stage"] not in _SETTLED and _site(job).lower() == host.lower():
+        if job and job["stage"] not in _SETTLED and host.lower() in (_site(job).lower(), job.get("typed")):
             return f"{host} is already under way. See where it is: /customers"
         for key in self._parked():
             other = self._other(key).job()
-            if other and other["stage"] not in _SETTLED and _site(other).lower() == host.lower():
+            if other and other["stage"] not in _SETTLED and host.lower() in (_site(other).lower(), other.get("typed")):
                 return f"{host} is already under way. Open it: /customers open {host}"
         return ""
 
@@ -361,7 +361,7 @@ class Customers:
             return f"I couldn't find enough there that I can prove. {tip}"
         created = {"id": code_for(source, str(self.now()))[:4] + hashlib.sha256(source.encode()).hexdigest()[:8],
                    "stage": "scanned", "brief": brief, "people": [], "emails": None, "voice_sample": "",
-                   "created_at": self.now()}
+                   "created_at": self.now(), "typed": re.sub(r"^https?://(www\.)?", "", source).split("/")[0].lower()}
         if job and job["stage"] not in _SETTLED:
             self._park(job)
             note = f"{_site(job)} keeps running, and I'll ping you when it moves. Back to it: /customers open {_site(job)}\n\n"
@@ -957,7 +957,12 @@ class Customers:
             self._launch_some(job)
         if job["stage"] == "reviewing":
             self._settle(job)
-        return self._approve_matching(job) if job["stage"] in ("reviewing", "launching", "live") or self._past() else []
+        if job["stage"] not in ("reviewing", "launching", "live") and not self._past():
+            return []
+        try:
+            return self._approve_matching(job)
+        except ApiError:  # The next check tries again. It mustn't swallow news from this one.
+            return []
 
     # What to show ----------------------------------------------------------------------------
     def _next(self, job: dict | None, refresh: bool = False) -> str:

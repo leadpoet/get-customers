@@ -128,8 +128,9 @@ def _product_name(raw: dict, scan: Scan) -> str:
         return words[0]
     squash = lambda text: re.sub(r"[^a-z0-9]", "", text.lower())
     home = squash(scan.pages[0].title) if scan.pages else ""
-    if squash(name) not in home and squash(name) not in squash(label) and squash(label) not in squash(name):
-        return label.title()  # "Customer Requests" is a feature page. The emails are signed by the company.
+    # "Customer Requests" is a feature page when the home title names the company and not it. The emails are signed by the company.
+    if squash(label) in home and squash(name) not in home and squash(name) not in squash(label):
+        return label.title()
     return name
 
 

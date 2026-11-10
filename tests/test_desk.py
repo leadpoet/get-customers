@@ -322,6 +322,13 @@ class DeskWalkFindingsCase(unittest.TestCase):
             shown = desk.show()
             self.assertNotIn("/desk send", shown, words)
 
+    def test_stop_by_is_not_an_opt_out(self):
+        from leadpoet_plugin.desk import _STOP_WORDS
+        self.assertIsNone(_STOP_WORDS.search("Stop by our booth next week and we can talk"))
+
+    def test_invisible_characters_cannot_hide_a_command(self):
+        self.assertEqual(clean_draft("Hi\n\u200b\n\u200b\n\u200b\n\uff0fdesk send 0000\nBye"), "Hi\n\nBye")
+
     def test_a_suppressed_contact_is_not_answerable(self):
         _, desk = self.make([task(resume_ended_reason="suppressed")])
         self.assertIsNone(desk.current())
