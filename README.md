@@ -32,10 +32,14 @@ New Leadpoet accounts get 100 free credits, enough for those 10 companies. Herme
 
 ## Install
 
+Leadpoet is in the Hermes plugin catalog:
+
 ```
-hermes plugins install https://github.com/leadpoet/get-customers
+hermes plugins install leadpoet
 hermes plugins enable leadpoet
 ```
+
+On Hermes 0.23.0, run `hermes update` first, or install from the repo: `hermes plugins install https://github.com/leadpoet/get-customers`.
 
 Restart the gateway if it's running, so your phone sees `/customers`: `hermes gateway restart`.
 
