@@ -85,7 +85,8 @@ def _latest_inbound(conversation: dict | None) -> tuple[str | None, str | None]:
     if not inbound:
         return None, None
     latest = max(inbound, key=lambda m: str(m.get("at") or ""))
-    return latest.get("id"), latest.get("text")
+    text = latest.get("text")
+    return latest.get("id"), text.strip() if isinstance(text, str) else None
 
 
 def _is_answerable(task: dict) -> bool:
@@ -110,6 +111,8 @@ def _age(received_at: str | None, now: datetime) -> str:
 
 
 def _quote(text: str | None) -> str:
+    if text == "":
+        return "> (They sent no text, perhaps only an attachment or an invite. See it in Leadpoet's Inbox.)"
     if not text:
         return "> (Open it in Leadpoet to read this one.)"
     shown = text.strip()
@@ -154,7 +157,7 @@ class Desk:
         """Match local state to Leadpoet. A reply Leadpoet no longer lists is closed here."""
         data = self.api.list_replies()
         if not isinstance(data.get("tasks"), list):  # An empty list here would close every open reply.
-            raise ApiError(0, "Leadpoet sent a list it couldn't read.")
+            raise ApiError("Leadpoet sent a list it couldn't read.")
         tasks = [t for t in data["tasks"] if isinstance(t, dict) and t.get("id") and t.get("enrollment_id")]
         listed = {t["id"] for t in tasks if _is_answerable(t)}
         reads = 0

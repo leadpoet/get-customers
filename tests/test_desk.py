@@ -92,6 +92,17 @@ class DeskCase(unittest.TestCase):
         self.assertIn("Happy to share pricing.", shown)
         self.assertIn("/desk send " + self.code(desk), shown)
 
+    def test_a_reply_with_no_text_says_so_and_gets_no_draft(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        api = FakeApi([task(classification="positive")])
+        api.inbound["e-t1"] = ("m1", "  ")
+        desk = Desk(api, Store(Path(self.dir.name) / "d.db"), FakeLlm(), now=lambda: NOW)
+        desk.sync()
+        shown = desk.show()
+        self.assertIn("They sent no text", shown)
+        self.assertNotIn("/desk send", shown)
+
     def test_wrong_code_never_sends(self):
         api, desk = self.make()
         desk.show()
@@ -370,6 +381,9 @@ class DeskWalkFindingsCase(unittest.TestCase):
         api.list_replies = lambda: {"tasks": None}
         self.assertEqual(run(desk), "")
         self.assertEqual(desk.store.get("poll_failures"), "1")
+        with self.assertRaises(ApiError) as caught:
+            desk.sync()
+        self.assertIn("couldn't read", caught.exception.message)
 
 
 class ApiCase(unittest.TestCase):
