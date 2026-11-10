@@ -103,6 +103,10 @@ class DeskCase(unittest.TestCase):
         self.assertIn("They sent no text", shown)
         self.assertNotIn("/desk send", shown)
 
+    def test_a_referral_says_where_the_reply_goes(self):
+        _, desk = self.make([task(classification="referral")])
+        self.assertIn("goes back to whoever wrote this", desk.show())
+
     def test_wrong_code_never_sends(self):
         api, desk = self.make()
         desk.show()
