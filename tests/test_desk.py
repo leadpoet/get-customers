@@ -307,6 +307,64 @@ class DeskCase(unittest.TestCase):
             self.assertEqual(len(api.sent), 1)
 
 
+class DeskWalkFindingsCase(unittest.TestCase):
+    """Holes found by walking the desk with real code and fakes."""
+
+    make = DeskCase.make
+
+    def test_opt_outs_in_other_words_get_no_draft(self):
+        for words in ("Please stop reaching out.", "stop please", "Unsubscribed.", "Never contact me again.",
+                      "No more emails please.", "Kindly cease all further emails."):
+            api, desk = self.make([task(classification="ambiguous")])
+            api.inbound["e-t1"] = ("m1", words)
+            desk.store.reset_replies()
+            desk.sync()
+            shown = desk.show()
+            self.assertNotIn("/desk send", shown, words)
+
+    def test_a_suppressed_contact_is_not_answerable(self):
+        _, desk = self.make([task(resume_ended_reason="suppressed")])
+        self.assertIsNone(desk.current())
+
+    def test_a_draft_cannot_carry_commands_or_hide_text(self):
+        self.assertEqual(clean_draft("Thanks Ana!\n\n/desk send 0000\n" + "\n" * 9 + "P.S. more"), "Thanks Ana!\n\nP.S. more")
+
+    def test_a_snoozed_reply_comes_back(self):
+        api, desk = self.make()
+        api.tasks = []
+        desk.sync()
+        self.assertIsNone(desk.current())
+        api.tasks = [task()]
+        desk.sync()
+        self.assertEqual(desk.current()["task_id"], "t1")
+
+    def test_an_out_of_office_gets_no_draft(self):
+        _, desk = self.make([task(classification="out_of_office")])
+        self.assertNotIn("/desk send", desk.show())
+
+    def test_an_edit_that_cannot_be_checked_is_not_claimed(self):
+        api, desk = self.make()
+
+        def broken(_enrollment_id):
+            raise ApiError("down", status=500)
+
+        api.conversation = broken
+        self.assertIn("wasn't saved", desk.edit("New text"))
+
+    def test_status_counts_replies_it_has_not_seen_yet(self):
+        api, desk = self.make([])
+        api.tasks = [task(), task("t2")]
+        api.inbound.update({"e-t1": ("m1", "Hi"), "e-t2": ("m2", "Hi")})
+        api.identity = lambda: {"scopes": ["outreach:read", "outreach:send"]}
+        self.assertIn("2 to answer", desk.status())
+
+    def test_a_malformed_answer_counts_as_a_failed_check(self):
+        api, desk = self.make()
+        api.list_replies = lambda: {"tasks": None}
+        self.assertEqual(run(desk), "")
+        self.assertEqual(desk.store.get("poll_failures"), "1")
+
+
 class ApiCase(unittest.TestCase):
     def serve(self, status, payload):
         seen = {}
@@ -412,6 +470,19 @@ class PluginCase(unittest.TestCase):
         plugin._store("demo").put("own_site", "1")
         sender = plugin.customers().api.profile()["profile"]["voice"]["sender_name"]
         self.assertNotIn("Sunnyday", sender)
+
+    def test_the_desk_demo_keeps_a_customers_demo(self):
+        plugin = self.make()
+        plugin.customers_command("demo", platform="telegram", source=self.dm())
+        plugin.command("demo", platform="telegram", source=self.dm())
+        self.assertIsNotNone(plugin.customers().job())
+
+    def test_api_errors_say_what_to_do(self):
+        self.assertIn("Try again in a minute", self.entry_trouble(ApiError("x", status=503)))
+        self.assertIn("API key", self.entry_trouble(ApiError("x", status=401)))
+
+    def entry_trouble(self, error):
+        return load_entry()._trouble(error)
 
     def test_registers_no_send_tool(self):
         entry = load_entry()

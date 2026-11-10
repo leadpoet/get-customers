@@ -81,7 +81,7 @@ class Plugin:
             return "Demo off. Start for real: /customers yoursite.com"
         live.put("demo", "1")
         self._demo_api = DemoApi()
-        self._store("demo").reset()
+        self._store("demo").reset_replies()
         desk = self.desk()
         desk.sync()
         for item in desk.store.open_items():
@@ -118,12 +118,19 @@ class Plugin:
             if action == "list":
                 return desk.listing()
             desk.store.mark_alerted([item["task_id"] for item in desk.store.unalerted()])
-            return desk.show()
+            return desk.show() + self._real_waiting()
         except ApiError as error:
-            return f"Leadpoet didn't respond as expected. {error.message}"
+            return _trouble(error)
         except Exception:
             logger.exception("leadpoet command failed")
             return "Something went wrong and nothing was sent."
+
+    def _real_waiting(self) -> str:
+        """Alerts keep coming for real replies during the demo, so say where they are."""
+        if not self.in_demo():
+            return ""
+        waiting = len(self._store("live").open_items())
+        return f"\n\n{waiting} real repl{'y is' if waiting == 1 else 'ies are'} waiting. Back to them: /desk demo off" if waiting else ""
 
     def _say(self) -> Any:
         return getattr(self.ctx, "post_message", None)
@@ -175,7 +182,7 @@ class Plugin:
                 return "You're in the demo. Leave it with /customers demo off, then send your site."
             return self.customers().handle(action if action in _CUSTOMER_ACTIONS or not action else parts[0], argument)
         except ApiError as error:
-            return f"Leadpoet didn't respond as expected. {error.message}"
+            return _trouble(error)
         except Exception:
             logger.exception("leadpoet customers command failed")
             return "Something went wrong. Nothing was sent, and your progress is saved."
@@ -219,6 +226,17 @@ class Plugin:
         except Exception:
             logger.exception("leadpoet tool failed")
             return json.dumps({"error": "The draft couldn't be saved."})
+
+
+def _trouble(error: ApiError) -> str:
+    """Leadpoet's errors, in words that say what to do next."""
+    if error.status in (401, 403):
+        return "Leadpoet didn't accept your API key. Create a new one in Settings, Developer, and add it as LEADPOET_API_KEY."
+    if error.status == 429:
+        return "Leadpoet asked me to slow down. Nothing was lost. Try again in a minute."
+    if error.ambiguous or error.status >= 500:
+        return "Leadpoet didn't answer in time. Nothing was lost. Try again in a minute."
+    return f"Leadpoet didn't respond as expected. {error.message}"
 
 
 _CUSTOMER_ACTIONS = {"go", "open", "write", "approve", "use", "all", "skip", "list", "check", "voice", "about", "reset"}

@@ -89,6 +89,20 @@ class Store:
                      inbound_id=excluded.inbound_id, inbound_text=excluded.inbound_text
                    WHERE items.state IN ('new','unknown')""", item)
 
+    def reopen(self, item: dict[str, Any]) -> None:
+        """A reply Leadpoet lists as open again, after a snooze, starts over as new."""
+        with self._lock, self._db:
+            self._db.execute(
+                "UPDATE items SET state='new', alerted=0, skipped=0, draft=NULL, channel=:channel, sendable=:sendable, "
+                "name=:name, company=:company, classification=:classification, urgent=:urgent, received_at=:received_at, "
+                "inbound_id=:inbound_id, inbound_text=:inbound_text WHERE task_id=:task_id AND state='closed'", item)
+
+    def reset_replies(self) -> None:
+        """Empty the demo's replies but keep the rest of the demo, such as a /customers walk-through."""
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM items")
+            self._db.execute("DELETE FROM kv WHERE key='current'")
+
     def update(self, task_id: str, **fields: Any) -> None:
         columns = ",".join(f"{name}=?" for name in fields)
         with self._lock, self._db:

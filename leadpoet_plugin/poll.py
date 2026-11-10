@@ -39,9 +39,10 @@ def run(desk: Desk) -> str:
     store = desk.store
     try:
         desk.sync()
-    except ApiError as error:
-        if error.status in (401, 403):
+    except Exception as error:  # A malformed answer counts as a failed check, so it can't stop /customers.
+        if isinstance(error, ApiError) and error.status in (401, 403):
             raise
+        logger.error("leadpoet reply check failed: %s", type(error).__name__)
         failures = int(store.get("poll_failures", "0") or 0) + 1
         store.put("poll_failures", str(failures))
         if failures == FAILURES_BEFORE_ALERT:

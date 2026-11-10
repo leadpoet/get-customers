@@ -24,14 +24,17 @@ _PLACEHOLDER = re.compile(r"\[ADD:", re.IGNORECASE)
 INBOX_URL = "https://leadpoet.com/dashboard/outreach"
 
 # Only these get a drafted answer. A label Leadpoet adds later stays with a person until it's listed here.
-_DRAFTABLE = {"positive", "question", "objection", "referral", "not_now", "out_of_office", "ambiguous"}
+_DRAFTABLE = {"positive", "question", "objection", "referral", "not_now", "ambiguous"}
 _NEVER_ANSWER_HERE = {"opt_out", "negative"}
 _STOP_WORDS = re.compile(
     r"\b(unsubscribe|opt me out|opt out|remove me|remove my|take me off|off your list|leave me alone|"
     r"stop (emailing|contacting|messaging|writing|sending)|do not (contact|email|message|write)|"
     r"don'?t (contact|email|message|write)|not interested|no need to follow up|don'?t follow up|"
     r"abmelden|entfernen sie mich|nicht mehr (kontaktieren|schreiben)|d[eé]sabonner|d[eé]sinscri\w+|"
-    r"ne (plus )?me contactez|darme de baja|no me (contacten|escriban))\b|^\W*stop\W*$", re.IGNORECASE)
+    r"ne (plus )?me contactez|darme de baja|no me (contacten|escriban)|unsubscrib\w*|cease\b|no (more|further) "
+    r"(emails?|messages?|contact|outreach)|never (contact|email|message|write)|stop (reaching|reach) out)\b|"
+    r"\bstop\b[^.?!\n]{0,40}\b(reach\w*|email\w*|contact\w*|messag\w*|writ\w*|send\w*)|^\W*(please\W+)?stop\b",
+    re.IGNORECASE)
 _PRIVACY_WORDS = re.compile(
     r"\b(gdpr|ccpa|dsgvo|data protection|right to (erasure|be forgotten)|delete (all |any )?(of )?(my|personal) (data|information|details)|"
     r"my personal data|lawyers?|attorneys?|legal action|sue you|regulator)\b", re.IGNORECASE)
@@ -65,7 +68,10 @@ def clean_draft(text: str | None) -> str | None:
     """Prepare text for sending. Leadpoet refuses em dashes, so they never reach it."""
     if not text:
         return None
-    cleaned = re.sub(r"\s*[—]\s*", ", ", text).strip()
+    cleaned = re.sub(r"\s*[—]\s*", ", ", text)
+    # A draft is shown above the real send line, so it can't carry commands or hide text below a gap.
+    cleaned = "\n".join(line for line in cleaned.splitlines() if not re.match(r"\s*/(desk|customers)\b", line, re.IGNORECASE))
+    cleaned = re.sub(r"\n\s*\n(\s*\n)+", "\n\n", cleaned).strip()
     return cleaned[:MAX_BODY] or None
 
 
@@ -81,7 +87,8 @@ def _latest_inbound(conversation: dict | None) -> tuple[str | None, str | None]:
 
 
 def _is_answerable(task: dict) -> bool:
-    return task.get("status") == "open" and not task.get("sequence_stopped")
+    return (task.get("status") == "open" and not task.get("sequence_stopped")
+            and task.get("resume_ended_reason") != "suppressed")
 
 
 def _can_send(task: dict) -> bool:
@@ -150,6 +157,12 @@ class Desk:
         for task in tasks:
             if task["id"] in listed and reads < MAX_THREAD_READS:
                 known = self.store.item(task["id"])
+                if known is not None and known["state"] == "closed":  # Snoozed, then back.
+                    reads += 1
+                    item = self._item_from(task)
+                    if item:
+                        self.store.reopen(item)
+                    continue
                 # Reading each thread once keeps polling light. Send re-reads it.
                 if known is None or known["inbound_id"] is None:
                     reads += 1
@@ -303,14 +316,21 @@ class Desk:
         current = self.current()
         if current and current["state"] == "unknown":
             return self.show("Leadpoet hasn't confirmed the last send, so this draft is locked.")
-        if current and self._hold(current):
+        hold = self._hold(current) if current else ""
+        if hold == _UNREAD:
+            return "Couldn't reach Leadpoet, so your edit wasn't saved. Try again."
+        if hold:
             return self.show()
+        if current and not current["sendable"]:
+            return self.show("This one can only be answered in Leadpoet.")
         return self.show("Updated.") if self.set_draft(text) else "Nothing to answer."
 
     def redraft(self, note: str) -> str:
         item = self.current()
         if item is None:
             return "Nothing to answer."
+        if self._hold(item):
+            return self.show()
         if not self._may_draft(item):
             return "This reply shouldn't get a drafted answer. Use /desk edit if you want to write one."
         if item["state"] == "unknown":
@@ -388,6 +408,7 @@ class Desk:
         if self.api.demo:
             return "Demo mode. Nothing here is real and nothing can be sent.\n\n/desk demo off"
         try:
+            self.sync()
             scopes = self.api.identity().get("scopes") or []
         except ApiError as error:
             return f"Can't reach your workspace. {error.message}"
