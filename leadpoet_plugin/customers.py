@@ -859,8 +859,8 @@ class Customers:
                     refused += 1
         if approved:
             noun = f"{approved} approved email{'s' if approved != 1 else ''}"
-            notes.append(f"{noun} would go out now, but this is the demo, so nothing did. Now try a reply: /desk"
-                         if getattr(self.api, "demo", False) else f"{noun} on the way. Replies come to /desk.")
+            if not getattr(self.api, "demo", False):  # The demo's finish says it once.
+                notes.append(f"{noun} on the way. Replies come to /desk.")
         if refused:
             notes.append(f"Leadpoet wants a person to check {refused} email{'s' if refused != 1 else ''} first, so {'they are' if refused != 1 else 'it is'} waiting in Review:\n{OUTREACH_URL}")
         if job:
@@ -1028,7 +1028,9 @@ class Customers:
                 skipped = sum(1 for row in job["people"] if row["state"] == "skipped")
                 return (f"Nothing launched. Leadpoet's safety checks held back {len(held)}, who may have opted out or been contacted recently"
                         + (f", and you skipped {skipped}" if skipped else "") + ". /customers reset starts a new one.")
-            text = f"Live. {launched} sequence{'s' if launched != 1 else ''} running, stopped by any reply. Answer them with /desk."
+            sequences = f"{launched} sequence{'s' if launched != 1 else ''}"
+            text = (f"Demo finished, and nothing was sent. For real, {sequences} would now run, each stopped by any reply.\nNow answer a reply: /desk"
+                    if getattr(self.api, "demo", False) else f"Live. {sequences} running, stopped by any reply. Answer them with /desk.")
             return text + (f"\n{len(held)} held back by Leadpoet's safety checks." if held else "")
         if stage == "failed":
             return f"{job.get('failure')} No more credits will be used. /customers reset starts over."
