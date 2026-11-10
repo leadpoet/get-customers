@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any
 
-MAX_BYTES = 600_000
+MAX_BYTES = 3_000_000  # Big sites put most of a megabyte of code before the first visible word.
 MAX_PAGE_CHARS = 9_000
 MAX_EXTRA_PAGES = 4
 TIMEOUT_SECONDS = 10
@@ -89,12 +89,12 @@ def _plain_rules(sheet: str) -> list[tuple[str, str]]:
     return rules
 
 
-def _hidden_classes(html: str) -> set[str]:
-    """Classes the page's own style block always hides."""
+def _hidden_classes(html: str, while_loading: bool = True) -> set[str]:
+    """Classes the page's own style block always hides. Some sites hide everything with visibility until a script runs."""
     classes: set[str] = set()
     for sheet in _style_sheets(html):
         for selectors, rules in _plain_rules(sheet):
-            if _HIDDEN_STYLE.search(rules):
+            if _HIDDEN_STYLE.search(rules if while_loading else re.sub(r"visibility\s*:\s*hidden", "", rules, flags=re.I)):
                 classes |= {match.group(1) for match in map(_CLASS_SELECTOR.fullmatch, selectors.split(",")) if match}
     return classes
 
@@ -110,6 +110,7 @@ class _Extractor(HTMLParser):
         super().__init__(convert_charrefs=True)
         self._hidden_classes = hidden_classes or set()
         self.parts: list[str] = []
+        self.size = 0
         self.links: list[str] = []
         self.title = ""
         self._skip = 0
@@ -153,6 +154,7 @@ class _Extractor(HTMLParser):
             self.title += data
         elif not self._skip:
             self.parts.append(data)
+            self.size += len(data)
 
     def text(self) -> str:
         joined = " ".join(self.parts)
@@ -186,6 +188,13 @@ def is_public_host(host: str) -> bool:
         return False
     addresses = {info[4][0] for info in infos}
     return bool(addresses) and all(ipaddress.ip_address(a.split("%")[0]).is_global for a in addresses)
+
+
+def _resolves(host: str) -> bool:
+    try:
+        return bool(socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP))
+    except (socket.gaierror, UnicodeError):
+        return False
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -234,15 +243,15 @@ _OPENER = urllib.request.build_opener(_NoRedirect, _PublicHttpHandler, _PublicHt
 
 def _read_within(response: Any, deadline: float) -> bytes:
     read = getattr(response, "read1", response.read)
-    data = b""
+    data = bytearray()
     while len(data) < MAX_BYTES:
         chunk = read(min(65536, MAX_BYTES - len(data)))
         if not chunk:
             break
-        data += chunk
+        data.extend(chunk)
         if time.monotonic() > deadline:
             raise TimeoutError
-    return data
+    return bytes(data)
 
 
 def fetch(url: str, *, opener: Any = _OPENER, public: Any = is_public_host) -> tuple[str, str]:
@@ -255,7 +264,11 @@ def fetch(url: str, *, opener: Any = _OPENER, public: Any = is_public_host) -> t
             host = parsed.hostname
         except ValueError:
             raise SiteError("That address isn't valid.") from None
-        if parsed.scheme not in ("http", "https") or not host or not public(host):
+        if parsed.scheme not in ("http", "https") or not host:
+            raise SiteError("That address isn't valid.")
+        if not public(host):
+            if not _resolves(host):
+                raise SiteError(f"Couldn't find {host}. Check the spelling.")
             raise SiteError("That website isn't on the public internet.")
         current = urllib.parse.quote(current, safe=_URL_SAFE)  # Sites do link to paths with spaces in them.
         request = urllib.request.Request(current, headers={"User-Agent": USER_AGENT, "Accept": "text/html"})
@@ -273,23 +286,29 @@ def fetch(url: str, *, opener: Any = _OPENER, public: Any = is_public_host) -> t
                 raise SiteError("That site doesn't let automated readers in, so I can't read it.") from None
             if error.code == 429:
                 raise SiteError("That site asked me to slow down, so I stopped.") from None
-            raise SiteError(f"That site answered with an error ({error.code}).") from None
+            home = f" Try the home page: /customers {host}" if error.code == 404 and parsed.path not in ("", "/") else ""
+            raise SiteError(f"That site answered with an error ({error.code}).{home}") from None
         except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError, ValueError):
             raise SiteError("Couldn't reach that website.") from None
     raise SiteError("That website redirects too many times.")
 
 
-def _parse(html: str) -> _Extractor:
-    extractor = _Extractor(_hidden_classes(html))
+def _parse(html: str, styled: bool = True) -> _Extractor:
+    extractor = _Extractor(_hidden_classes(html, while_loading=styled))
     try:
-        extractor.feed(html)
+        for start in range(0, len(html), 65536):  # Stop once there's more text than is ever used.
+            extractor.feed(html[start:start + 65536])
+            if extractor.size > 3 * MAX_PAGE_CHARS:
+                break
     except Exception:  # Malformed markup keeps whatever was read so far.
         pass
+    if styled and len(extractor.text()) < 200:  # Text hidden only until a script runs is still the page.
+        return _parse(html, styled=False)
     return extractor
 
 
 def _pick_links(base: str, links: list[str], host: str) -> list[str]:
-    seen: set[str] = set()
+    seen: set[str] = {base, base.rstrip("/")}
     picked: list[str] = []
     for link in links:
         try:

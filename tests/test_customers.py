@@ -1276,3 +1276,78 @@ class WalkFindingsCase(Case):
     def test_no_model_says_so_instead_of_blaming_the_site(self):
         text = Customers(self.api, Store(Path(self.tmp.name) / "m.db"), None, demo_fetch).start(SELLER)
         self.assertIn("model", text)
+
+
+class BreadthFindingsCase(unittest.TestCase):
+    """Real misses from reading 33 live sites with the real model."""
+
+    QUOTE = "Accept payments online in minutes."
+
+    def raw(self, **over):
+        row = {"summary": "s", "roles": ["b"], "buyer_description": "c", "product_name": "Linear",
+               "facts": [{"text": self.QUOTE, "quote": self.QUOTE, "url": "https://a/"}]}
+        row.update(over)
+        return row
+
+    def scan(self, domain="linear.app", title="Linear - Plan and build products"):
+        return Scan(domain, [Page("https://a/", title, self.QUOTE)])
+
+    def test_a_consumer_company_is_told_so(self):
+        brief = validate_brief(self.raw(sells_to_businesses=False), self.scan("gentledental.com", "Gentle Dental"))
+        self.assertTrue(brief["consumer"])
+        store = Store(Path(tempfile.mkdtemp()) / "c.db")
+
+        class Llm:
+            def complete(self, *_args, **_kwargs):
+                return SimpleNamespace(text=json.dumps(BreadthFindingsCase().raw(sells_to_businesses=False, product_name="Gentle Dental")))
+
+        page = '<title>Gentle Dental</title><p>Accept payments online in minutes. We care for your smile.</p>' * 10
+        text = Customers(None, store, Llm(), lambda url: (url, page)).start("gentledental.com")
+        self.assertIn("sells to consumers", text)
+
+    def test_a_feature_page_name_is_not_the_company(self):
+        self.assertEqual(validate_brief(self.raw(product_name="Customer Requests"), self.scan())["product_name"], "Linear")
+        self.assertEqual(validate_brief(self.raw(product_name="Sunnyday"), self.scan("getsunnyday.com", "Sunnyday"))["product_name"], "Sunnyday")
+
+    def test_a_signal_listing_alternatives_is_dropped(self):
+        signals = [{"source": "job_postings", "description": "Posted a role naming NICE or Five9 administration. Source: LinkedIn Jobs, past 30 days"},
+                   {"source": "community_social_and_review_sites", "description": "A named ops lead posted about lost handovers. Source: LinkedIn post, past 60 days"}]
+        kept = validate_brief(self.raw(signals=signals), self.scan())["signals"]
+        self.assertEqual([signal["source"] for signal in kept], ["community_social_and_review_sites"])
+
+    def test_a_problem_about_the_scan_is_dropped(self):
+        brief = validate_brief(self.raw(problem="The site does not describe the problems buyers have."), self.scan())
+        self.assertEqual(brief["problem"], "")
+
+    def test_text_hidden_only_while_loading_is_read(self):
+        from leadpoet_plugin.website import _parse
+        html = "<style>.boot{visibility:hidden}</style><body class='x'><div class='boot'><p>" + "Real words here. " * 20 + "</p></div></body>"
+        self.assertIn("Real words here.", _parse(html).text())
+
+    def test_a_page_whose_body_starts_late_is_read(self):
+        import io
+        from leadpoet_plugin.website import scan_site
+        html = ("<head><script>" + "var a=1;" * 110_000 + "</script></head><body><p>" + "Real words here. " * 20 + "</p></body>").encode()
+
+        class Response(io.BytesIO):
+            headers = {"Content-Type": "text/html"}
+
+        class Opener:
+            def open(self, request, timeout):
+                return Response(html)
+
+        from leadpoet_plugin.website import fetch
+        scan = scan_site("https://big.example/", fetcher=lambda url: fetch(url, opener=Opener(), public=lambda _: True))
+        self.assertIn("Real words here.", scan.pages[0].text)
+
+    def test_a_card_drops_query_strings_and_long_country_lists(self):
+        from leadpoet_plugin.brief import card
+        brief = validate_brief(self.raw(countries=["A", "B", "C", "D", "E"]), self.scan())
+        brief["facts"][0]["url"] = "https://headspace.com/about-us?origin=footer"
+        shown = card(brief)
+        self.assertIn("Proof from headspace.com/about-us:", shown)
+        self.assertIn("Where: A, B, C and 2 more", shown)
+
+    def test_a_regulatory_order_is_never_a_personal_line(self):
+        from leadpoet_plugin.writer import _SENSITIVE
+        self.assertTrue(_SENSITIVE.search("Austin ISD was released from the TEA Special Education Agreed Order."))

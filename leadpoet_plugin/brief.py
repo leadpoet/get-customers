@@ -35,10 +35,10 @@ _SIGNAL_RULES = (
     "The buyer is the organization that pays for this product. Roles and signals are about that organization and the "
     "people in it, never about the customers it sells to: for a sales tool, a signal is the buyer hiring sales reps, not "
     "its customers hiring. "
-    "Signals: return 3 to 5, at most one for each source, in this order: " + ", ".join(SIGNAL_SOURCES) + ". Always "
-    "include job_postings, company_website_and_press_releases and community_social_and_review_sites, which exist for "
-    "every product. Leave out funding_and_company_news or technology_footprint only when it would have no detail "
-    "specific to this product; a weak signal is worse than none. Each is an "
+    "Signals: return 2 to 5, at most one for each source, in this order: " + ", ".join(SIGNAL_SOURCES) + ". Always "
+    "include job_postings and community_social_and_review_sites, which exist for every product. Leave out "
+    "funding_and_company_news, technology_footprint or company_website_and_press_releases when it would have no detail "
+    "specific to this product, or would need an event you are guessing at; a weak signal is worse than none. Each is an "
     'object with "source" (that id) and "description": one observable event at a potential buyer, then " Source: " '
     "with exactly one place a researcher can look it up and one public record there, then the time window, for example "
     '"Posted a Dispatcher role that names manual route planning. Source: LinkedIn Jobs posting, past 30 days". At most '
@@ -60,8 +60,11 @@ _SIGNAL_RULES = (
 _SYSTEM = (
     "You work out who a company should sell to, using only its website. Reply with one JSON object "
     "and nothing else, with these keys: "
-    '"product_name" (string), "summary" (one plain sentence stating only what the site says the product does and '
-    'for whom), '
+    '"sells_to_businesses" (true when organizations pay for this; false when it is sold mainly to consumers, households or '
+    'patients, such as a shop, a dentist or a plumber), '
+    '"product_name" (the company or brand the home page is about, never a feature or a page name), "summary" (one plain '
+    'sentence stating only what the site says the main product on the home page does and for whom; other pages are '
+    'for proof, not for a different product), '
     '"facts" (up to 5 objects with "text", a claim the seller can make, "quote", the exact words '
     'from the page that prove it, copied character for character, and "url", that page\'s address. Code checks that every '
     'word of "text" is in "quote", in the same order, apart from the product name and small words like is, the and you, '
@@ -71,8 +74,8 @@ _SYSTEM = (
     'or no to one company, such as "US staffing agencies with 10 to 200 employees that place light industrial workers", '
     'never a generic function such as "customer-service businesses". When the site serves several kinds of customer, '
     'name the one with the most proof on the site. No hedges such as likely, may or appears), '
-    '"roles" (up to 5 job titles, at those organizations, of the people who buy this product. Never the titles that '
-    'those organizations sell to), '
+    '"roles" (up to 5 job titles, at those organizations, of the people who own the budget for this product or sign for it, '
+    'plus at most one hands-on user. Never the titles that those organizations sell to), '
     '"signals" (see the rules below), '
     '"company_sizes" (list, chosen only from: ' + "; ".join(SIZE_LABELS) + ", and only when the site makes size clear), "
     '"countries" (full country names, only when the site makes a market clear, otherwise an empty list), '
@@ -121,7 +124,13 @@ def _product_name(raw: dict, scan: Scan) -> str:
     if not name or _NOT_A_NAME.search(name):
         return label.title()
     words = name.split()  # "Gong Revenue AI OS" is the tagline. The company is Gong.
-    return words[0] if len(words) > 2 and words[0].lower() == label.lower() else name
+    if len(words) > 2 and words[0].lower() == label.lower():
+        return words[0]
+    squash = lambda text: re.sub(r"[^a-z0-9]", "", text.lower())
+    home = squash(scan.pages[0].title) if scan.pages else ""
+    if squash(name) not in home and squash(name) not in squash(label) and squash(label) not in squash(name):
+        return label.title()  # "Customer Requests" is a feature page. The emails are signed by the company.
+    return name
 
 
 def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = None) -> dict | None:
@@ -129,6 +138,8 @@ def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = Non
     if not raw:
         return None
     product = _product_name(raw, scan)
+    if raw.get("sells_to_businesses") is False:
+        return {"consumer": True, "product_name": product, "domain": scan.domain}
     facts = []
     for fact in raw.get("facts") if isinstance(raw.get("facts"), list) else []:
         if not isinstance(fact, dict):
@@ -151,12 +162,18 @@ def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = Non
         "countries": _strings(raw.get("countries"), 10),
         "exclude": _strings(raw.get("exclude"), 8),
         "signals": _signals(raw.get("signals")),
-        "problem": _text(raw.get("problem"), 400),
+        "problem": _problem(raw.get("problem")),
         "voice": _text(raw.get("voice"), 300),
     }
     if not brief["summary"] or not brief["buyers"] or not brief["company_fit"] or not brief["facts"]:
         return None
     return brief
+
+
+def _problem(value: Any) -> str:
+    """The buyer's problem, never a note about what the scan could or couldn't see."""
+    text = _text(value, 400).replace("—", ", ")
+    return "" if re.search(r"\b(the|this) (site|website|page)\b", text, re.IGNORECASE) else text
 
 
 def _signals(value: Any) -> list[dict]:
@@ -168,7 +185,8 @@ def _signals(value: Any) -> list[dict]:
         text = " ".join(_text(item.get("description"), 400).replace("—", ", ").split())
         event = _SOURCE_CLAUSE.sub("", text).strip()
         if (len(text) > SIGNAL_CHARS + 20 or len(event) < 15 or not _SOURCE_CLAUSE.search(text)
-                or _GUESSWORK.search(text) or re.search(r"https?:|www\.|[<>{}\[\]]", text)):
+                or _GUESSWORK.search(text) or re.search(r"https?:|www\.|[<>{}\[\]]", text)
+                or re.search(r"\bor\b", event, re.IGNORECASE)):  # One event, never a list of alternatives.
             continue
         kept[item["source"]] = {"source": item["source"], "description": text}
     return [kept[source] for source in SIGNAL_SOURCES if source in kept]
@@ -207,7 +225,7 @@ def _refine(llm: Any, scan: Scan, brief: dict) -> dict:
     roles, signals = _strings(raw.get("roles"), MAX_ROLES), _signals(raw.get("signals"))
     if fit_text:
         better["company_fit"] = fit_text
-    problem = _text(raw.get("problem"), 400).replace("—", ", ")
+    problem = _problem(raw.get("problem"))
     if problem:
         better["problem"] = problem
     if roles:
@@ -231,6 +249,8 @@ def write_brief(llm: Any, scan: Scan, note: str = "") -> dict | None:
         except Exception:  # A model failure is reported to the user as a failed scan.
             return best
         brief = validate_brief(parse_json_object(getattr(result, "text", None)), scan, refused)
+        if brief and brief.get("consumer"):
+            return brief
         if brief and (best is None or len(brief["facts"]) > len(best["facts"])):
             best = brief
         if best and len(best["facts"]) >= ENOUGH_FACTS:
@@ -278,7 +298,7 @@ def fit(parts: list[str], limit: int) -> str:
 
 def _page(url: str) -> str:
     """A source as a person reads it: leadpoet.com/about-us."""
-    page = re.sub(r"^https?://(www\.)?", "", str(url)).rstrip("/")
+    page = re.sub(r"^https?://(www\.)?", "", str(url)).split("?")[0].split("#")[0].rstrip("/")
     return page or str(url)
 
 
@@ -292,7 +312,8 @@ def card(brief: dict) -> str:
     if brief["company_sizes"]:
         lines.append("Size: " + ", ".join(brief["company_sizes"]))
     if brief["countries"]:
-        lines.append("Where: " + ", ".join(brief["countries"]))
+        countries = brief["countries"]
+        lines.append("Where: " + ", ".join(countries[:3]) + (f" and {len(countries) - 3} more" if len(countries) > 3 else ""))
     signals = [signal for signal in brief.get("signals") or [] if "source" in signal]
     if signals:
         lines += ["", "Buying signals Leadpoet looks for:"]

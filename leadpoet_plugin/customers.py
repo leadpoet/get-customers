@@ -354,6 +354,9 @@ class Customers:
 
     def _start_from(self, scan: Scan, source: str, job: dict | None, tip: str) -> str:
         brief = briefs.write_brief(self.llm, scan)
+        if brief and brief.get("consumer"):
+            return (f"{brief['product_name']} sells to consumers, so there are no companies to find for it.\n"
+                    "If you sell to businesses, say what you sell: /customers about <your text>")
         if brief is None:
             return f"I couldn't find enough there that I can prove. {tip}"
         created = {"id": code_for(source, str(self.now()))[:4] + hashlib.sha256(source.encode()).hexdigest()[:8],
