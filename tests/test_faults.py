@@ -101,6 +101,8 @@ class FaultWalk(unittest.TestCase):
                 nonlocal customers
                 try:
                     customers.advance()
+                except ApiError:  # The scheduled check counts it and tries again.
+                    pass
                 except Crash:
                     clock[0] += 400
                     customers = make()

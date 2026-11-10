@@ -297,7 +297,7 @@ class LaunchCase(Case):
         self.to_review()
         self.api.proposal = {"ready": False, "reasons": ["profile_not_confirmed"]}
         text = self.customers.handle("all", self.all_code())
-        self.assertIn("profile_not_confirmed", text)
+        self.assertIn("profile not confirmed", text)
         first = list(self.api.keys)
         self.api.proposal = {"ready": True, "contract": {}}
         self.customers.advance()
@@ -317,13 +317,13 @@ class LaunchCase(Case):
     def test_missing_sender_details_block_the_launch(self):
         self.to_review()
         self.api.sender_missing = ["postal_address"]
-        self.assertIn("postal_address", self.customers.handle("all", self.all_code()))
+        self.assertIn("postal address", self.customers.handle("all", self.all_code()))
         self.assertTrue(all(person["state"] == "approved" for person in self.people().values()))
 
     def test_an_opted_out_contact_is_held_not_forced(self):
         self.to_review()
         self.api.admitted = 0
-        self.assertIn("held everyone back", self.customers.handle("all", self.all_code()))
+        self.assertIn("held back 3", self.customers.handle("all", self.all_code()))
         self.assertEqual(self.api.campaigns, [])
 
     def test_only_a_draft_matching_the_approved_text_is_approved(self):
@@ -1002,7 +1002,7 @@ class EvidenceTests(unittest.TestCase):
         def fetcher(_url):
             raise SiteError("That site doesn't let automated readers in, so I can't read it.")
 
-        self.assertIn("/customers about", Customers(None, store, None, fetcher).start("https://acme.com"))
+        self.assertIn("/customers about", Customers(None, store, object(), fetcher).start("https://acme.com"))
 
 
 class RealApiShapeTests(Case):
@@ -1201,3 +1201,78 @@ class ReasoningBudgetTests(unittest.TestCase):
         brief = write_brief(ThinkingLlm(), scan)
         self.assertIsNotNone(brief)
         self.assertEqual(brief["buyers"], ["Office Manager"])
+
+
+class WalkFindingsCase(Case):
+    """Paths a user walked into on a phone."""
+
+    def test_a_key_added_after_the_offer_shows_the_cost_before_spending(self):
+        store = Store(Path(self.tmp.name) / "k.db")
+        keyless = Customers(None, store, DemoLlm(), demo_fetch)
+        code = keyless.start(SELLER).split("/customers go ")[1].split()[0]
+        keyless.handle("go", code)
+        customers = Customers(self.api, store, DemoLlm(), demo_fetch)
+        text = customers.handle("go", code)
+        self.assertIn("Cost: 100 credits", text)
+        self.assertEqual(self.api.requests, [])
+        customers.handle("go", code)
+        self.assertEqual(len(self.api.requests), 1)
+
+    def test_a_key_added_while_waiting_moves_on(self):
+        store = Store(Path(self.tmp.name) / "w.db")
+        keyless = Customers(None, store, DemoLlm(), demo_fetch)
+        keyless.handle("go", keyless.start(SELLER).split("/customers go ")[1].split()[0])
+        self.assertIn("Your key is in", Customers(self.api, store, DemoLlm(), demo_fetch).handle("", ""))
+
+    def test_codes_typed_with_capitals_still_work(self):
+        self.customers.handle("go", self.code("go").upper())
+        self.assertEqual(len(self.api.requests), 1)
+
+    def test_go_with_no_code_asks_for_it_briefly(self):
+        text = self.customers.handle("go", "")
+        self.assertIn(f"/customers go {self.code('go')}", text)
+        self.assertLess(len(text), 120)
+
+    def test_the_same_site_twice_does_not_start_a_second_search(self):
+        self.customers.handle("go", self.code("go"))
+        self.assertIn("already under way", self.customers.start(SELLER))
+        self.assertEqual(len(self.api.requests), 1)
+
+    def test_a_check_that_keeps_failing_is_counted(self):
+        from leadpoet_plugin.poll import advance
+
+        self.customers.handle("go", self.code("go"))
+
+        def broken(_query_id):
+            raise ApiError("boom", status=500)
+
+        self.api.get_request = broken
+        texts = [advance(self.customers, self.store) for _ in range(3)]
+        self.assertIn("may be stuck", texts[-1])
+
+    def test_a_search_that_finds_no_one_still_pings(self):
+        self.customers.handle("go", self.code("go"))
+        self.api.pipeline_contacts = lambda icp: []
+        self.api.state = "completed"
+        self.assertIn("can't see a contact", self.customers.advance())
+        self.assertEqual(self.customers.advance(), "")
+
+    def test_a_stranding_balance_is_explained_before_go(self):
+        self.api.credits_left = 150
+        text = Customers(self.api, Store(Path(self.tmp.name) / "s.db"), DemoLlm(), demo_fetch).start(SELLER)
+        self.assertIn("leave 50 credits", text)
+        self.assertIn("Add 50 more", text)
+
+    def test_approving_says_so_first(self):
+        self.to_review()
+        self.assertTrue(self.customers.handle("approve", self.code("approve")).startswith("Approved "))
+        self.assertTrue(self.customers.handle("skip", "").startswith("Skipped "))
+
+    def test_open_takes_a_www_address(self):
+        self.customers.handle("go", self.code("go"))
+        site = self.customers.job()["brief"]["domain"]
+        self.assertIn("You're on it already", self.customers.handle("open", f"www.{site}"))
+
+    def test_no_model_says_so_instead_of_blaming_the_site(self):
+        text = Customers(self.api, Store(Path(self.tmp.name) / "m.db"), None, demo_fetch).start(SELLER)
+        self.assertIn("model", text)

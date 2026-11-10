@@ -78,7 +78,7 @@ class Plugin:
         if argument == "off":
             live.put("demo", None)
             self._demo_api = None
-            return "Demo off."
+            return "Demo off. Start for real: /customers yoursite.com"
         live.put("demo", "1")
         self._demo_api = DemoApi()
         self._store("demo").reset()
@@ -151,7 +151,9 @@ class Plugin:
         for item in desk.store.open_items():
             desk.store.update(item["task_id"], state="new", skipped=0, draft=None)
         llm = getattr(self.ctx, "llm", None)
-        if argument and llm is not None:
+        if argument and llm is None:
+            argument = ""  # Reading a real site needs a model, so the made-up seller stands in.
+        if argument:
             intro = "Demo mode: this is your real website, read by your model. The prospects are made up, so nothing can reach anyone.\n\n"
             self._store("demo").put("own_site", "1")
             return intro + Customers(self._demo_customers, self._store("demo"), llm, say=self._say()).start(argument)
@@ -219,7 +221,7 @@ class Plugin:
             return json.dumps({"error": "The draft couldn't be saved."})
 
 
-_CUSTOMER_ACTIONS = {"go", "write", "approve", "use", "all", "skip", "list", "check", "voice", "about", "reset"}
+_CUSTOMER_ACTIONS = {"go", "open", "write", "approve", "use", "all", "skip", "list", "check", "voice", "about", "reset"}
 
 
 def _watch_setup(parser: Any) -> None:

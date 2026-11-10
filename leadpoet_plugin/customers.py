@@ -41,6 +41,8 @@ _PARKED = "customers_parked"  # Other searches still running, so each one keeps 
 MAX_SEARCHES = 5
 _SETTLED = ("scanned", "done", "failed", "live")
 _SLOW_DOWN = "Leadpoet asked me to slow down. I'll carry on at the next check."
+_NO_ANSWER = "Leadpoet didn't answer in time. Your approval is kept, and I'll carry on at the next check."
+_NO_MODEL = "Hermes hasn't given this plugin a model, so I can't read your site. Set a model in Hermes, then send it again."
 # Leadpoet may clear these by itself, so a later check tries again without bothering anyone.
 _TRY_APPROVAL_AGAIN = {"READY_CHECK_UNAVAILABLE", "AUTOMATIC_RETRY", "CONTACT_PAUSED", "CAMPAIGN_NOT_ACTIVE"}
 _REPLY_OPT_OUT = 'Don\'t want these? Reply "unsubscribe".'
@@ -84,6 +86,14 @@ def affordable_companies(credits: int, price: int) -> int:
     """Leadpoet won't strand a small balance: a request leaves nothing usable, or at least 100."""
     left = credits - COMPANIES * price
     return COMPANIES if left >= 0 and (left < price or left >= 100) else 0
+
+
+def _balance_note(balance: int, cost: int) -> str:
+    if cost and balance >= cost:
+        left = balance - cost
+        return (f"That would leave {left:,} credits, too few for another search, and Leadpoet won't strand them. "
+                f"Add {cost + 100 - balance:,} more to run it.")
+    return f"Your balance of {balance:,} credits doesn't cover a {COMPANIES}-company search, the smallest Leadpoet runs."
 
 
 def code_for(*parts: str) -> str:
@@ -251,6 +261,8 @@ class Customers:
         if action == "about":
             return self._about(argument)
         job = self.job()
+        if action in ("go", "use", "approve", "all"):
+            argument = argument.strip().lower()  # Phones capitalise the first letter.
         if action == "":
             return self._next(job, refresh=True)
         if action == "check":
@@ -279,7 +291,8 @@ class Customers:
         job = self.job()
         if job and job.get("find_body") and argument.lower() != "confirm":
             return self._unconfirmed_find(job)
-        if job and job["stage"] not in (*_SETTLED, "needs_key", "needs_credits") and argument.lower() != "confirm":
+        if (job and job["stage"] not in (*_SETTLED, "needs_key", "needs_credits") and argument.lower() != "confirm"
+                and not getattr(self.api, "demo", False)):
             return ("This search has spent credits, so I'll keep it unless you're sure.\n"
                     "To look at another company, just send /customers othersite.com and this one keeps running.\n"
                     "Drop it anyway: /customers reset confirm")
@@ -293,15 +306,21 @@ class Customers:
                 "Or drop it anyway: /customers reset confirm")
 
     def start(self, site: str, job: dict | None = None, note: str = "") -> str:
+        job = job if job is not None else self.job()
         refused = self._room_for_another(job)
         if refused:
             return refused
+        if self.llm is None:
+            return _NO_MODEL
         try:
             url = normalize_site(site)
         except SiteError as error:
             return error.args[0]
+        host = re.sub(r"^https?://(www\.)?", "", url).split("/")[0]
+        running = self._running(job, host)
+        if running:
+            return running
         try:
-            host = re.sub(r"^https?://(www\.)?", "", url).split("/")[0]
             self._progress(f"Reading {host}: working out who buys from you, who makes the call, "
                            "the buying signals that say now is the time, and the quotes that prove each claim. About 30 seconds.")
             scan = scan_site(url, fetcher=self.fetcher) if self.fetcher else scan_site(url)
@@ -315,11 +334,23 @@ class Customers:
         refused = self._room_for_another(job)
         if refused:
             return refused
+        if self.llm is None:
+            return _NO_MODEL
         if len(text) < 200:
             return "Paste a bit more: what you sell, who buys it, and any real numbers or customers.\n/customers about <your text>"
         self._progress("Reading what you wrote. This takes about 20 seconds.")
         scan = Scan(domain="your-company", pages=[Page(OWN_WORDS, "", text[:MAX_OWN_WORDS])])
         return self._start_from(scan, f"{OWN_WORDS}:{text[:200]}", job, "Add what the product does and who uses it, then send it again.")
+
+    def _running(self, job: dict | None, host: str) -> str:
+        """Starting the same site again would ask to spend twice."""
+        if job and job["stage"] not in _SETTLED and _site(job).lower() == host.lower():
+            return f"{host} is already under way. See where it is: /customers"
+        for key in self._parked():
+            other = self._other(key).job()
+            if other and other["stage"] not in _SETTLED and _site(other).lower() == host.lower():
+                return f"{host} is already under way. Open it: /customers open {host}"
+        return ""
 
     def _start_from(self, scan: Scan, source: str, job: dict | None, tip: str) -> str:
         brief = briefs.write_brief(self.llm, scan)
@@ -344,7 +375,7 @@ class Customers:
         if len(sample) < 40:
             return "Paste a few sentences you really wrote: /customers voice <text>"
         if job["stage"] not in ("scanned", "needs_key", "needs_credits", "finding", "ready"):
-            return "The emails are already written, so that would change nothing. /customers reset starts over."
+            return "These emails are already written, so they stay as they are. Add your voice before writing on your next search."
         job["voice_sample"] = sample[:1500]
         self.save(job)
         return "Got it. Your emails will follow that style."
@@ -356,6 +387,8 @@ class Customers:
     def _go(self, job: dict | None, code: str) -> str:
         if not job or job["stage"] not in ("scanned", "needs_key", "needs_credits"):
             return self._next(job)
+        if not code:
+            return f"Add the code to confirm: /customers go {self._brief_code(job)}"
         if code != self._brief_code(job):
             return "That code doesn't match this profile. Use the code shown here:\n\n" + self._next(job)
         if self.api is None:
@@ -405,7 +438,9 @@ class Customers:
         if isinstance(body, int):
             return self._hand_off(job, body)
         quoted = job.get("quoted_credits")
-        if not retry and quoted and body["credit_budget"] != quoted:  # Never charge a different amount than was shown.
+        if not retry and not quoted:  # Added a key after the offer, or the price couldn't be read then.
+            return "Here's the cost before anything is spent.\n\n" + self._offer(job)
+        if not retry and body["credit_budget"] != quoted:  # Never charge a different amount than was shown.
             job.pop("quoted_credits", None)
             return "Leadpoet's price changed since you looked, so nothing was spent.\n\n" + self._offer(job)
         job["find_body"] = body
@@ -597,7 +632,7 @@ class Customers:
         lines += ["Leadpoet adds your booking link, if you've set one, and your legal footer.",
                   f"Approve these exact emails: /customers approve {self._person_code(job, person)}", "Leave them out: /customers skip"]
         if len(new) > 1:
-            lines += [f"Read all {len(new)} and approve them together: /customers all"]
+            lines += [f"Read {'both' if len(new) == 2 else f'all {len(new)}'} and approve them together: /customers all"]
         return "\n".join(lines)
 
     def _all_emails(self, job: dict, new: list[dict]) -> str:
@@ -614,7 +649,7 @@ class Customers:
             return "That code doesn't match these emails. Use the code shown here:\n\n" + self._next(job)
         person["state"] = "approved"
         self.save(job)
-        return self._after_review(job)
+        return f"Approved {person['name']}.\n\n" + self._after_review(job)
 
     def _approve_all(self, job: dict | None, code: str) -> str:
         if not job or job["stage"] != "reviewing":
@@ -638,7 +673,7 @@ class Customers:
         if person:
             person["state"] = "skipped"
             self.save(job)
-        return self._after_review(job)
+        return (f"Skipped {person['name']}.\n\n" if person else "") + self._after_review(job)
 
     def _after_review(self, job: dict) -> str:
         """Each approval starts straight away, so walking off halfway loses nothing."""
@@ -652,7 +687,7 @@ class Customers:
         self._settle(job)
         if job["stage"] == "done":
             return "You skipped everyone, so nothing launches. /customers reset starts over."
-        return "\n\n".join([part for part in (job.get("blocked"), self._next(job) if job["stage"] != "launching" or not job.get("blocked") else "") if part] + notes)
+        return "\n\n".join(notes + [part for part in (job.get("blocked"), self._next(job) if job["stage"] != "launching" or not job.get("blocked") else "") if part])
 
     def _settle(self, job: dict) -> None:
         """With nobody left to review, the job moves on, even if a crash interrupted the launch."""
@@ -684,8 +719,10 @@ class Customers:
         except _Blocked as blocked:
             job["blocked"] = str(blocked)
         except ApiError as error:
-            if error.status == 429 or error.ambiguous:
+            if error.status == 429:
                 job["blocked"] = _SLOW_DOWN
+            elif error.ambiguous:
+                job["blocked"] = _NO_ANSWER
             else:
                 job["blocked"] = f"Leadpoet stopped this launch: {error.message}"
         if job["stage"] == "launching" and not any(row["state"] == "approved" for row in job["people"]):
@@ -726,11 +763,11 @@ class Customers:
             return
         proposal = self.api.contract_proposal(person["campaign_id"])
         if not proposal.get("ready"):
-            raise _Blocked("Leadpoet needs more before launching: " + ", ".join(map(str, proposal.get("reasons") or ["unknown"])) + f"\n{OUTREACH_URL}")
+            raise _Blocked("Leadpoet needs more before launching: " + ", ".join(_plain(reason) for reason in proposal.get("reasons") or ["details"]) + f"\n{OUTREACH_URL}")
         preview = self.api.campaign_preview(person["campaign_id"])
         if preview.get("missingSenderDetails"):
             raise _Blocked("Add your sender details in Leadpoet (the law needs them in cold email):\n"
-                           + ", ".join(map(str, preview["missingSenderDetails"])) + f"\n{OUTREACH_URL}")
+                           + ", ".join(_plain(detail) for detail in preview["missingSenderDetails"]) + f"\n{OUTREACH_URL}")
         person["launch_sent"] = True
         self.save(job)
         try:
@@ -871,7 +908,14 @@ class Customers:
         return self._locked(self._advance, "")
 
     def _advance(self) -> str:
-        texts = [self._advance_one(), *(self._other(key)._advance_one(parked=True) for key in self._parked())]
+        texts, failed = [], None
+        for customers, parked in ((self, False), *((self._other(key), True) for key in self._parked())):
+            try:
+                texts.append(customers._advance_one(parked=parked))
+            except ApiError as error:  # One stuck search mustn't stop the others moving.
+                failed = error
+        if failed and not any(texts):
+            raise failed  # So the scheduled check can count it and say so after a few.
         return "\n\n".join(text for text in texts if text)
 
     def _advance_one(self, parked: bool = False) -> str:
@@ -883,14 +927,11 @@ class Customers:
                 return "\n\n".join(self._approve_matching(None))
             except ApiError:
                 return ""
-        before, told = job["stage"], job.get("blocked")
-        try:
-            notes = self._refresh(job)
-        except ApiError:
-            return ""  # A temporary failure. The next check tries again.
-        if job["stage"] != before and job["stage"] in ("ready", "failed", "live"):
+        before, told, empty = job["stage"], job.get("blocked"), job.get("delivered_empty")
+        notes = self._refresh(job)
+        if (job["stage"] != before and job["stage"] in ("ready", "failed", "live")) or (job.get("delivered_empty") and not empty):
             notes.insert(0, self._parked_news(job) if parked else self._next(job))
-        elif job.get("blocked") and job["blocked"] != told and job["blocked"] != _SLOW_DOWN:
+        elif job.get("blocked") and job["blocked"] != told and job["blocked"] not in (_SLOW_DOWN, _NO_ANSWER):
             notes.insert(0, job["blocked"])
         if parked and notes:
             return f"{_site(job)}: " + "\n\n".join(notes)
@@ -931,6 +972,8 @@ class Customers:
         stage = job["stage"]
         if stage == "scanned":
             return (briefs.card(job["brief"]) + "\n\n" + self._offer(job))
+        if stage == "needs_key" and self.api is not None:
+            return "Your key is in.\n\n" + self._offer(job)
         if stage == "needs_key":
             return ("Finding real contacts needs a free Leadpoet account. New accounts get 100 free credits, "
                     "enough for 10 matching companies with verified contacts.\n"
@@ -942,9 +985,10 @@ class Customers:
                 return ("I see a new search in Leadpoet, but its text isn't the one I gave you, so I didn't assume it's this one.\n"
                         f"If it is: /customers use {code_for(job['id'], job['other_request']['id'])}")
             if job.get("balance"):
-                return (f"Your balance of {job['balance']} credits doesn't fit a {COMPANIES}-company search, the smallest Leadpoet runs.\n"
+                return (_balance_note(job["balance"], job.get("quoted_credits") or 0) + "\n"
                         f"Add credits here: {LEAD_ENGINE_URL}\nThen: /customers go {self._brief_code(job)}")
-            return ("New accounts get 100 free credits with their first request, which Leadpoet takes in the app to keep bots out.\n"
+            return ("New accounts get 100 free credits with their first request, which Leadpoet takes in the app to keep bots out. "
+                    "If you've used yours, add credits there instead.\n"
                     f"Paste this there: {LEAD_ENGINE_URL}\n\n{briefs.description(job['brief'])}\n\n"
                     "I'll pick it up from there and ping you. /customers check looks now.")
         if stage == "finding" and getattr(self.api, "demo", False):
@@ -972,7 +1016,9 @@ class Customers:
             launched = sum(1 for row in job["people"] if row["state"] == "launched")
             held = [row for row in job["people"] if row["state"] == "held"]
             if not launched:
-                return "Leadpoet's safety checks held everyone back, so nothing launched. They may have opted out or been contacted recently."
+                skipped = sum(1 for row in job["people"] if row["state"] == "skipped")
+                return (f"Nothing launched. Leadpoet's safety checks held back {len(held)}, who may have opted out or been contacted recently"
+                        + (f", and you skipped {skipped}" if skipped else "") + ". /customers reset starts a new one.")
             text = f"Live. {launched} sequence{'s' if launched != 1 else ''} running, stopped by any reply. Answer them with /desk."
             return text + (f"\n{len(held)} held back by Leadpoet's safety checks." if held else "")
         if stage == "failed":
@@ -997,12 +1043,15 @@ class Customers:
         cost = COMPANIES * price
         job["quoted_credits"] = cost
         self.save(job)
+        short = "" if affordable_companies(balance, price) else "\n" + _balance_note(balance, cost)
         return (f"Next, find {COMPANIES} companies with verified contacts.\n"
-                f"Cost: {cost:,} credits. You have {balance:,}.\n\n"
+                f"Cost: {cost:,} credits. You have {balance:,}.{short}\n\n"
                 f"To confirm, reply:\n/customers go {code}")
 
     def _open(self, job: dict | None, site: str) -> str:
-        wanted = re.sub(r"^https?://(www\.)?", "", site.strip().lower()).split("/")[0]
+        wanted = re.sub(r"^(https?://)?(www\.)?", "", site.strip().lower()).split("/")[0]
+        if job and wanted and _site(job).lower() == wanted:
+            return "You're on it already.\n\n" + self._next(job)
         others = [(key, self._other(key).job()) for key in self._parked()]
         match = next(((key, other) for key, other in others if other and wanted and _site(other).lower() == wanted), None)
         if match is None:
@@ -1033,6 +1082,11 @@ class Customers:
         labels = {"research": "researching", "new": "waiting for you", "approved": "approved", "skipped": "skipped", "launched": "running", "held": "held back"}
         return "\n".join(f"{row['name']}, {row['company']}: {labels.get(row['state'], row['state'])}"
                          f"{'' if row['lines'] else ' (no personal line)'}" for row in job["people"])
+
+
+def _plain(code: Any) -> str:
+    """legal_entity and booking_link_missing are Leadpoet's names, not the user's."""
+    return re.sub(r"_missing$", "", str(code)).replace("_", " ")
 
 
 def _site(job: dict) -> str:

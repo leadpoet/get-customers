@@ -38,7 +38,8 @@ _SUBJECT_WORDS = frozenset("quick question thought idea note last follow followi
 _NO_SUBJECT_OPENING = re.compile(r"(?:they|their|it|its|he|she|we|our|this|these|those)\b", re.IGNORECASE)
 # True or not, these don't belong in a cold opener.
 _SENSITIVE = re.compile(r"\b(sued|lawsuits?|litigation|fraud\w*|bankrupt\w*|layoffs?|laid off|fired|scandals?|breach\w*|"
-                        r"investigat\w*|indict\w*|arrest\w*|convict\w*|divorce\w*|death|died|illness|cancer)\b", re.IGNORECASE)
+                        r"investigat\w*|indict\w*|arrest\w*|convict\w*|divorce\w*|death|died|illness|cancer|agreed orders?|consent decrees?|"
+                        r"settle\w*|violat\w*|penalt\w*|fined|sanction\w*|probation|receivership|corrective action|audit findings?)\b", re.IGNORECASE)
 _SPELLED_NUMBERS = frozenset(
     "two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen "
     "nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred thousand million billion dozen twice "
@@ -93,7 +94,7 @@ _SEQUENCE_SYSTEM = (
     f"Hi {{first_name}},\n{PERSONAL}\nIf late handoffs slow your drivers down, Pinecrest Freight lets you track every "
     "cold-chain lane in one place [1]. It runs six days a week out of Rotterdam [2].\nIs this worth a short call?\nBest,\n{sender}\n"
     "Use the buyer's problem for the conditions. Use different proof in each email, choosing the proof that most directly solves "
-    "the buyer's problem. Leave out proof about policies, data handling or setup unless the problem is about that. The last email is the shortest: one claim and one question. Each email asks a different question. You know nothing about the recipient's "
+    "the buyer's problem. Leave out proof about policies, data handling or setup unless the problem is about that. Never use proof about a different kind of customer than the buyer, such as hospitals when the buyer is schools. The last email is the shortest: one claim and one question. Each email asks a different question. You know nothing about the recipient's "
     "company, so never state anything about it. Never pressure the reader. "
     "A subject is two to four plain words a colleague would write, naming the buyer's problem or that email's claim, like Handover time. Build it only from words in the proof list or the buyer's problem, with no placeholder. The only subjects that may use {company} are "
     "Question for {company} and the seller's name followed by for {company}."
@@ -374,7 +375,8 @@ def validate_sequence(raw: dict | None, brief: dict) -> list[dict] | None:
 def write_sequence(llm: Any, brief: dict, voice_sample: str = "") -> list[dict] | None:
     proof = "\n".join(f'{number}. Source: "{fact["quote"]}"' for number, fact in enumerate(brief["facts"], 1))
     sample = f"\nHow they write, in their own words:\n{voice_sample[:1500]}" if voice_sample else ""
-    prompt = (f"Sender's company: {brief['product_name']}\nThe buyer's problem: {brief['problem']}\n"
+    prompt = (f"Sender's company: {brief['product_name']}\nThe buyer: {brief.get('company_fit', '')}\n"
+              f"The buyer's problem: {brief['problem']}\n"
               f"Voice: {brief['voice']}{sample}\nProof list:\n{proof}")
     problem = ""
     for attempt in range(SEQUENCE_TRIES):  # Tell the model exactly what broke. Code decides, never the model.
