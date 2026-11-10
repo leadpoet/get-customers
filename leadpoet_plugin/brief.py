@@ -54,7 +54,8 @@ _SIGNAL_RULES = (
     "anonymous. Every signal must narrow the market to a recent change that makes buying more likely now: if most "
     "companies like the buyer would match it in a normal month, or it fits many unrelated products, rewrite it with the "
     "one product-specific detail. One event per signal, no lists of alternatives, no claims that anyone is evaluating, "
-    "considering or seeking something, and no guessing about private plans."
+    "considering or seeking something, and no guessing about private plans. A signal never names this product or its "
+    "maker: a company already using it is a customer, not a prospect."
 )
 
 _SYSTEM = (
@@ -63,8 +64,8 @@ _SYSTEM = (
     '"sells_to_businesses" (true when organizations pay for this; false when it is sold mainly to consumers, households or '
     'patients, such as a shop, a dentist or a plumber), '
     '"product_name" (the company or brand the home page is about, never a feature or a page name), "summary" (one plain '
-    'sentence stating only what the site says the main product on the home page does and for whom; other pages are '
-    'for proof, not for a different product), '
+    'sentence stating only what the site says the main product on the home page does and for whom, written as a plain fact '
+    'about the product that never mentions the page or the site; other pages are for proof, not for a different product), '
     '"facts" (up to 5 objects with "text", a claim the seller can make, "quote", the exact words '
     'from the page that prove it, copied character for character, "url", that page\'s address, and "said_by", "seller" when the '
     'company says it about itself or "customer" for a testimonial, review or case study quote. Code checks that every '
@@ -173,7 +174,7 @@ def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = Non
     brief = {
         "domain": scan.domain,
         "product_name": product,
-        "summary": _text(raw.get("summary"), 800),
+        "summary": _summary(raw.get("summary")),
         "facts": facts[:MAX_FACTS],
         "buyers": _strings(raw.get("roles"), MAX_ROLES),
         "company_fit": _text(raw.get("buyer_description"), 500).replace("—", ", "),
@@ -181,7 +182,7 @@ def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = Non
         "company_sizes": [size for size in _strings(raw.get("company_sizes"), 8) if size in SIZE_LABELS],
         "countries": _strings(raw.get("countries"), 10),
         "exclude": _strings(raw.get("exclude"), 8),
-        "signals": _signals(raw.get("signals")),
+        "signals": _signals(raw.get("signals"), product),
         "problem": _problem(raw.get("problem")),
         "voice": _text(raw.get("voice"), 300),
     }
@@ -196,8 +197,17 @@ def _problem(value: Any) -> str:
     return "" if re.search(r"\b(the|this) (site|website|page)\b", text, re.IGNORECASE) else text
 
 
-def _signals(value: Any) -> list[dict]:
+def _summary(value: Any) -> str:
+    """What the product does, not where the model read it."""
+    text = _text(value, 800)
+    return re.sub(r",?\s+(?:as\s+)?(?:shown|described|listed|stated)?\s*(?:on|from)\s+(?:the|its)\s+(?:home\s?page|website|site)(?=\s*[.,;]|\s*$)",
+                  "", text, flags=re.IGNORECASE)
+
+
+def _signals(value: Any, product: str = "") -> list[dict]:
     """Keep observable events with a place to look them up. A guess about interest is dropped, never sent."""
+    # A company that already names the product is a customer, not a prospect. Case matters: "Ramp" is not "ramp up".
+    own = re.compile(rf"(?<![\w-]){re.escape(product.strip())}(?![\w-])") if len(product.strip()) >= 3 else None
     kept: dict[str, dict] = {}
     for item in value if isinstance(value, list) else []:
         if not isinstance(item, dict) or item.get("source") not in SIGNAL_SOURCES or item["source"] in kept:
@@ -206,7 +216,8 @@ def _signals(value: Any) -> list[dict]:
         event = _SOURCE_CLAUSE.sub("", text).strip()
         if (len(text) > SIGNAL_CHARS + 20 or len(event) < 15 or not _SOURCE_CLAUSE.search(text)
                 or _GUESSWORK.search(text) or re.search(r"https?:|www\.|[<>{}\[\]]", text)
-                or re.search(r"\bor\b", event, re.IGNORECASE)):  # One event, never a list of alternatives.
+                or re.search(r"\bor\b", event, re.IGNORECASE)  # One event, never a list of alternatives.
+                or (own and own.search(event))):
             continue
         kept[item["source"]] = {"source": item["source"], "description": text}
     return [kept[source] for source in SIGNAL_SOURCES if source in kept]
@@ -242,7 +253,7 @@ def _refine(llm: Any, scan: Scan, brief: dict) -> dict:
     raw = parse_json_object(getattr(result, "text", None)) or {}
     better = dict(brief)
     fit_text = _text(raw.get("buyer_description"), 500).replace("—", ", ")
-    roles, signals = _strings(raw.get("roles"), MAX_ROLES), _signals(raw.get("signals"))
+    roles, signals = _strings(raw.get("roles"), MAX_ROLES), _signals(raw.get("signals"), brief["product_name"])
     if fit_text:
         better["company_fit"] = fit_text
     problem = _problem(raw.get("problem"))

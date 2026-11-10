@@ -1430,6 +1430,18 @@ class BreadthFindingsCase(unittest.TestCase):
         facts = [{"text": quote, "quote": quote, "url": "https://a/", "said_by": "seller"} for quote in kept]
         self.assertEqual([fact["quote"] for fact in validate_brief(self.raw(facts=facts), scan)["facts"]], kept)
 
+    def test_a_signal_naming_the_product_itself_is_dropped(self):
+        signals = [{"source": "job_postings", "description": "Posted an engineering role naming Linear and agent work. Source: LinkedIn Jobs posting, past 30 days"},
+                   {"source": "community_social_and_review_sites", "description": "An engineering leader posted that handoffs get lost across Jira and Slack. Source: LinkedIn post, past 30 days"}]
+        brief = validate_brief(self.raw(signals=signals, summary="Linear plans product work for software teams, on the home page."), self.scan())
+        self.assertEqual([signal["source"] for signal in brief["signals"]], ["community_social_and_review_sites"])
+        self.assertEqual(brief["summary"], "Linear plans product work for software teams.")
+
+    def test_a_product_named_like_a_common_word_keeps_its_signals(self):
+        signal = {"source": "job_postings", "description": "Posted a controller role to ramp up card coding. Source: LinkedIn Jobs posting, past 30 days"}
+        brief = validate_brief(self.raw(product_name="Ramp", signals=[signal]), self.scan("ramp.com", "Ramp - Spend"))
+        self.assertEqual(len(brief["signals"]), 1)
+
     def test_a_dropped_quote_says_why_so_the_retry_can_fix_it(self):
         said = "I saved ten hours a week with it."
         scan = Scan("linear.app", [Page("https://a/", "Linear - Plan", f"{self.QUOTE} {said} Plans from $49/mo.")])
