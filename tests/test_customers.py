@@ -227,9 +227,16 @@ class WriteCase(Case):
         self.assertIn("threw out 1", self.text)
 
     def test_every_personal_line_carries_its_quote_and_page(self):
+        real = self.api.pipeline_contacts
+        self.api.pipeline_contacts = lambda icp: [{**row, "icp_details": None} for row in real(icp)]
         self.to_review()
         self.assertIn('Source: "We now run cold-chain lanes out of Rotterdam six days a week"', self.text)
         self.assertIn("https://pinecrest-freight.example/", self.text)
+
+    def test_the_buying_signal_opens_and_names_its_source(self):
+        self.to_review()
+        self.assertIn("Personal line: Pinecrest Freight posted a night dispatcher role on Oct 28 that asks for clean shift handovers.\n"
+                      "Source: Leadpoet's note above", self.text)
 
     def test_no_personal_line_leaves_no_gap(self):
         self.to_review()
@@ -1067,6 +1074,40 @@ class SignalTests(unittest.TestCase):
         from leadpoet_plugin.brief import signal_line
         self.assertEqual(signal_line({"source": "job_postings", "description": "Posted a Dispatcher role. Source: Indeed posting, past 30 days"}),
                          "Posted a Dispatcher role (within the past 30 days).")
+
+
+class SubjectFallbackTests(unittest.TestCase):
+    def test_a_bad_subject_alone_never_costs_the_emails(self):
+        from leadpoet_plugin.customers_demo import _SEQUENCE
+        from leadpoet_plugin.website import scan_site
+        from leadpoet_plugin.writer import check_sequence
+        brief = write_brief(DemoLlm(), scan_site(SELLER, fetcher=demo_fetch))
+        draft = json.loads(json.dumps(_SEQUENCE))
+        draft["emails"][0]["subject"] = "Stale rosters"
+        self.assertIn("Stale", check_sequence(draft, brief)[1].title())
+        emails, problem = check_sequence(draft, brief, safe_subjects=True)
+        self.assertEqual((problem, emails[0]["subject"]), ("", "Question for {company}"))
+
+
+class SignalOpenerTests(unittest.TestCase):
+    def line(self, text, why="Posted three SDR roles in the past month."):
+        from leadpoet_plugin.writer import signal_opener
+        llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": text})))
+        return signal_opener(llm, {"company": "Ramp", "why": why})
+
+    def test_the_opener_restates_the_note_and_nothing_more(self):
+        self.assertEqual(self.line("Ramp posted three SDR roles in the past month")[0][0]["line"],
+                         "Ramp posted three SDR roles in the past month.")
+        self.assertEqual(self.line("Ramp posted three SDR roles in the past month to fix its pipeline."), ([], 1))
+        self.assertEqual(self.line("Ramp posted five SDR roles in the past month."), ([], 1))
+        self.assertEqual(self.line("Ramp posted three SDR roles.", why=""), ([], 0))
+
+    def test_the_signal_opens_and_a_site_fact_stands_in_without_one(self):
+        customers = Customers(DemoCustomersApi(), Store(Path(tempfile.mkdtemp()) / "a.db"), DemoLlm(), demo_fetch)
+        lines, _ = research_person(DemoLlm(), {**customers.api.pipeline_contacts(None)[0], "why": "Posted a night dispatcher role on Oct 28 that asks for clean shift handovers."}, demo_fetch)
+        self.assertEqual([line["url"] for line in lines], [""])
+        lines, _ = research_person(DemoLlm(), customers.api.pipeline_contacts(None)[0], demo_fetch)
+        self.assertEqual([line["url"] for line in lines], ["https://pinecrest-freight.example/"])
 
 
 class ManySearchesCase(Case):

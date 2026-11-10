@@ -65,11 +65,11 @@ HELP = """/customers yoursite.com: find your customers
 /customers reset: start over"""
 
 
-class _OneAtATime:
-    """Pages load in parallel, but a plugin shouldn't assume the model client is thread safe."""
+class _FewAtATime:
+    """Hermes's model client takes parallel calls and limits them itself. This keeps a plugin's share small."""
 
-    def __init__(self, llm: Any):
-        self._llm, self._lock = llm, threading.Lock()
+    def __init__(self, llm: Any, limit: int = 4):
+        self._llm, self._lock = llm, threading.BoundedSemaphore(limit)
 
     def complete(self, *args: Any, **kwargs: Any) -> Any:
         with self._lock:
@@ -518,7 +518,7 @@ class Customers:
         self.save(job)
         deadline = self.now() + RESEARCH_SECONDS
         waiting = [person for person in job["people"] if person["state"] == "research"]
-        self._line_llm = _OneAtATime(self.llm)
+        self._line_llm = _FewAtATime(self.llm)
         # Fetching pages is slow and safe to overlap. Each person is saved as soon as they finish.
         with ThreadPoolExecutor(max_workers=4) as pool:
             for person, (lines, dropped) in zip(waiting, pool.map(self._research, waiting, [deadline] * len(waiting))):
@@ -581,7 +581,8 @@ class Customers:
         lines.append("")
         if person["lines"]:
             for entry in person["lines"]:
-                lines += [f"Personal line: {entry['line']}", f"Source: \"{entry['quote']}\"", entry["url"], ""]
+                source = [f"Source: \"{entry['quote']}\"", entry["url"]] if entry["url"] else ["Source: Leadpoet's note above"]
+                lines += [f"Personal line: {entry['line']}", *source, ""]
         else:
             lines += ["No personal line. I couldn't prove one, so there isn't one.", ""]
         for number, touch in enumerate(person["touches"], 1):

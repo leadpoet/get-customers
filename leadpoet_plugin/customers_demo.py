@@ -69,6 +69,12 @@ def demo_fetch(url: str) -> tuple[str, str]:
     return key, f"<html><head><title>Demo</title></head><body><p>{_PAGES[key]}</p></body></html>"
 
 
+_SIGNAL_LINES = {
+    "Pinecrest Freight": "Pinecrest Freight posted a night dispatcher role on Oct 28 that asks for clean shift handovers.",
+    "Harbor Lane Roasters": "Harbor Lane Roasters launched a wholesale program in October that runs its own van routes to cafes.",
+}
+
+
 class DemoLlm:
     """Stand-in model, so the demo needs no key and costs nothing. Its output goes through the same checks."""
 
@@ -79,6 +85,8 @@ class DemoLlm:
         if purpose.endswith("sequence"):
             return SimpleNamespace(text=json.dumps(_SEQUENCE))
         company = purpose.split(": ", 1)[-1]
+        if purpose.startswith("leadpoet signal line"):
+            return SimpleNamespace(text=json.dumps({"line": _SIGNAL_LINES.get(company, "")}))
         return SimpleNamespace(text=json.dumps(_LINES.get(company, {"lines": []})))
 
 

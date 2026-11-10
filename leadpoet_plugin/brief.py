@@ -297,5 +297,5 @@ def card(brief: dict) -> str:
     for fact in brief["facts"]:
         pages.setdefault(_page(fact["url"]), []).append(fact["text"])
     for page, texts in pages.items():  # One source line per page, not one link under every fact.
-        lines += ["", f"Proof from {page}:"] + [f"• {text}" for text in texts]
+        lines += ["", f"Proof from {page}:"] + [f"• {text}" if text[-1:] in ".!?" else f"• {text}." for text in texts]
     return "\n".join(lines)
