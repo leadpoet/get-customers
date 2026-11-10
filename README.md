@@ -24,9 +24,11 @@ It runs the whole job with fictional companies. Nothing can reach anyone, and it
 
 Want to see it read your real site? `/customers demo yoursite.com`. The brief is real. The prospects are made up.
 
-## Your first 10 companies are free
+## Free to start
 
-New Leadpoet accounts get 100 free credits, enough for 10 matching companies with verified contacts. Hermes hands you the prepared request and picks it up from there.
+10 companies with verified contacts, email or LinkedIn outreach from one sender, and a CRM pipeline in Leadpoet that tracks every contact and reply. No card needed.
+
+New Leadpoet accounts get 100 free credits, enough for those 10 companies. Hermes hands you the prepared request and picks it up from there.
 
 ## Install
 
