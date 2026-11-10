@@ -79,6 +79,25 @@ def clean_draft(text: str | None) -> str | None:
     return cleaned[:MAX_BODY] or None
 
 
+_WROTE = re.compile(r"^\s*(On\b.{0,200}\bwrote:|Am\b.{0,200}\bschrieb.{0,60}:|Le\b.{0,200}\ba [eé]crit\s?:)\s*$", re.IGNORECASE)
+_OUTLOOK = re.compile(r"^\s*(-{2,}\s*Original Message\s*-{2,}|_{10,})\s*$|^\s*From:\s.+$", re.IGNORECASE)
+
+
+def new_text(text: str) -> str:
+    """What they wrote this time: quoted lines and the "On ... wrote:" header go, lines they typed between quotes stay."""
+    lines = text.splitlines()
+    for index, line in enumerate(lines):  # Outlook quotes the whole earlier message under a header, with no ">".
+        if _OUTLOOK.match(line) and (not line.lstrip().lower().startswith("from:")
+                                     or any(l.lstrip().lower().startswith(("sent:", "date:")) for l in lines[index + 1:index + 4])):
+            lines = lines[:index]
+            break
+    kept = [line for line in lines if not line.lstrip().startswith(">")]
+    joined = "\n".join(kept)
+    joined = re.sub(r"(?m)^\s*On\b[^\n]{0,200}\n[^\n]{0,120}\bwrote:\s*$", "", joined)  # Gmail wraps the header.
+    kept = [line for line in joined.splitlines() if not _WROTE.match(line)]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
 def _latest_inbound(conversation: dict | None) -> tuple[str | None, str | None]:
     messages = (conversation or {}).get("messages")
     if not isinstance(messages, list):
@@ -88,7 +107,7 @@ def _latest_inbound(conversation: dict | None) -> tuple[str | None, str | None]:
         return None, None
     latest = max(inbound, key=lambda m: str(m.get("at") or ""))
     text = latest.get("text")
-    return latest.get("id"), text.strip() if isinstance(text, str) else None
+    return latest.get("id"), (new_text(text) or text.strip()) if isinstance(text, str) else None
 
 
 def _is_answerable(task: dict) -> bool:
@@ -117,7 +136,7 @@ def _quote(text: str | None) -> str:
         return "> (They sent no text, perhaps only an attachment or an invite. See it in Leadpoet's Inbox.)"
     if not text:
         return "> (Open it in Leadpoet to read this one.)"
-    shown = text.strip()
+    shown = new_text(text) or text.strip()
     if len(shown) > MAX_QUOTE:
         shown = shown[:MAX_QUOTE] + "…"
     return "\n".join("> " + line for line in shown.splitlines())
@@ -306,7 +325,9 @@ class Desk:
             parts += [f"Your reply:\n{item['draft']}",
                       f"/desk send {code}\n/desk edit <your text>\n/desk redraft <note>\n/desk skip"]
         else:
-            parts.append("No draft for this one.\n\n/desk edit <your text>\n/desk skip")
+            why = ("Leadpoet hasn't sorted this reply yet, so there's no draft. Write your own, or skip it."
+                   if not item.get("classification") else "No draft for this one.")
+            parts.append(f"{why}\n\n/desk edit <your text>\n/desk skip")
         return "\n\n".join(parts)
 
     def set_draft(self, text: str, item: dict | None = None) -> dict | None:

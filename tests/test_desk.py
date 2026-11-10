@@ -116,6 +116,26 @@ class DeskCase(unittest.TestCase):
         self.assertIn("not to hear from you", shown)
         self.assertNotIn("goes back to whoever wrote this", shown)
 
+    def test_a_reply_shows_only_what_they_wrote_not_our_quoted_email(self):
+        api, desk = self.make([])
+        api.tasks.append(task(classification="positive"))
+        api.inbound["e-t1"] = ("m1", "Thanks, got this. Send times for Tuesday?\n\n"
+                               "On Fri, Oct 16, 2026 at 10:24 AM Sam Lee <sam@seller.example>\nwrote:\n\n"
+                               "> Hi Ana,\n>\n> If this isn't a priority, just let me know and I\n> won't follow up.\n>")
+        desk.sync()
+        shown = desk.show()
+        self.assertIn("Send times for Tuesday?", shown)
+        self.assertNotIn("wrote:", shown)
+        self.assertNotIn("follow up", shown)
+        self.assertNotIn("not to hear from you", shown)
+        self.assertIn("/desk send", shown)
+
+    def test_a_reply_still_being_read_says_why_there_is_no_draft(self):
+        _, desk = self.make([task(classification=None)])
+        shown = desk.show()
+        self.assertIn("hasn't sorted this reply yet", shown)
+        self.assertNotIn("/desk send", shown)
+
     def test_wrong_code_never_sends(self):
         api, desk = self.make()
         desk.show()
