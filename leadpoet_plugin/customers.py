@@ -441,9 +441,10 @@ class Customers:
         if isinstance(body, int):
             return self._hand_off(job, body)
         quoted = job.get("quoted_credits")
-        if not retry and not quoted:  # Added a key after the offer, or the price couldn't be read then.
+        demo = getattr(self.api, "demo", False)  # The demo's made-up credits have no price to show.
+        if not retry and not quoted and not demo:  # Added a key after the offer, or the price couldn't be read then.
             return "Here's the cost before anything is spent.\n\n" + self._offer(job)
-        if not retry and body["credit_budget"] != quoted:  # Never charge a different amount than was shown.
+        if not retry and not demo and body["credit_budget"] != quoted:  # Never charge a different amount than was shown.
             job.pop("quoted_credits", None)
             return "Leadpoet's price changed since you looked, so nothing was spent.\n\n" + self._offer(job)
         job["find_body"] = body
@@ -641,7 +642,7 @@ class Customers:
     def _all_emails(self, job: dict, new: list[dict]) -> str:
         """The code for approving everyone is shown only under everything it approves."""
         blocks = ["\n".join(self._emails(person)) for person in new]
-        return "\n---\n\n".join(blocks) + f"\nApprove all {len(new)} exactly as shown: /customers all {self._all_code(job, new)}"
+        return "\n---\n\n".join(blocks) + f"\nApprove {'these' if len(new) == 1 else f'all {len(new)}'} exactly as shown: /customers all {self._all_code(job, new)}"
 
     # Approve and launch ----------------------------------------------------------------------
     def _approve(self, job: dict | None, code: str) -> str:

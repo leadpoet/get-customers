@@ -477,6 +477,15 @@ class PluginCase(unittest.TestCase):
         plugin.command("demo", platform="telegram", source=self.dm())
         self.assertIsNotNone(plugin.customers().job())
 
+    def test_the_demo_walks_from_go_to_emails(self):
+        plugin = self.make()
+        dm = self.dm()
+        shown = plugin.customers_command("demo", platform="telegram", source=dm)
+        code = shown.split("/customers go ")[1].split()[0]
+        plugin.customers_command(f"go {code.upper()}", platform="telegram", source=dm)
+        self.assertIn("/customers write", plugin.customers_command("", platform="telegram", source=dm))
+        self.assertIn("/customers approve", plugin.customers_command("write", platform="telegram", source=dm))
+
     def test_api_errors_say_what_to_do(self):
         self.assertIn("Try again in a minute", self.entry_trouble(ApiError("x", status=503)))
         self.assertIn("API key", self.entry_trouble(ApiError("x", status=401)))
