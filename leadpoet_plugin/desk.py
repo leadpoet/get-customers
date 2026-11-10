@@ -266,7 +266,9 @@ class Desk:
         messages = conversation.get("messages") if isinstance(conversation.get("messages"), list) else []
         for message in messages[-6:]:
             who = "Salesperson" if message.get("direction") == "outbound" else "Prospect"
-            lines.append(f"{who}: {str(message.get('text') or '')[:1500]}")
+            said = str(message.get("text") or "")
+            said = (new_text(said) or said.strip()) if who == "Prospect" else said
+            lines.append(f"{who}: {said[:1500]}")
         text = "\n\n".join(lines) or f"Prospect: {item.get('inbound_text') or ''}"
         return without_tag(text, "conversation")
 

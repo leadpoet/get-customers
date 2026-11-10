@@ -129,6 +129,9 @@ class DeskCase(unittest.TestCase):
         self.assertNotIn("follow up", shown)
         self.assertNotIn("not to hear from you", shown)
         self.assertIn("/desk send", shown)
+        sent_to_model = json.dumps(desk.llm.calls)
+        self.assertIn("Send times for Tuesday?", sent_to_model)
+        self.assertNotIn("follow up", sent_to_model)
 
     def test_a_reply_still_being_read_says_why_there_is_no_draft(self):
         _, desk = self.make([task(classification=None)])
