@@ -304,6 +304,19 @@ class DeskCase(unittest.TestCase):
         desk.skip()
         self.assertEqual(desk.current()["task_id"], "a")
 
+    def test_skipping_every_reply_comes_back_round_to_the_first(self):
+        _, desk = self.make([task("a"), task("b", received_at=(NOW - timedelta(minutes=1)).isoformat())])
+        seen = [desk.current()["task_id"]]
+        for _ in range(3):
+            desk.skip()
+            seen.append(desk.current()["task_id"])
+        self.assertEqual(seen, ["a", "b", "a", "b"])
+
+    def test_a_one_line_sign_off_gets_its_own_line(self):
+        self.assertEqual(clean_draft("Thanks for the note.\n\nBest, Gavin Zaentz"), "Thanks for the note.\n\nBest,\nGavin Zaentz")
+        self.assertEqual(clean_draft("Thanks, Sam. Tuesday works."), "Thanks, Sam. Tuesday works.")
+        self.assertEqual(clean_draft("Sounds good.\nThanks, talk soon"), "Sounds good.\nThanks, talk soon")
+
     def test_em_dashes_are_removed(self):
         self.assertEqual(clean_draft("Yes — we can."), "Yes, we can.")
 

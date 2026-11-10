@@ -75,6 +75,9 @@ def clean_draft(text: str | None) -> str | None:
     cleaned = re.sub(r"\s*[—]\s*", ", ", cleaned)
     # A draft is shown above the real send line, so it can't carry commands or hide text below a gap.
     cleaned = "\n".join(line for line in cleaned.splitlines() if not re.match(r"\s*/(desk|customers)\b", line, re.IGNORECASE))
+    # "Best, Gavin" on one line reads as a typo; the sign-off gets its own line.
+    cleaned = re.sub(r"(^|\n)(Best|Thanks|Thank you|Cheers|Regards|Best regards|Kind regards|All the best),[ \t]+"
+                     r"([A-Z][\w.'-]*(?: [A-Z][\w.'-]*){0,3})\s*\Z", r"\1\2,\n\3", cleaned.rstrip())
     cleaned = re.sub(r"\n\s*\n(\s*\n)+", "\n\n", cleaned).strip()
     return cleaned[:MAX_BODY] or None
 
@@ -379,7 +382,8 @@ class Desk:
         item = self.current()
         if item is None:
             return "Nothing to answer."
-        self.store.update(item["task_id"], skipped=1)
+        # A queue, not a flag: skipping the last one brings back the first one skipped.
+        self.store.update(item["task_id"], skipped=max(row["skipped"] for row in self.store.open_items()) + 1)
         self.store.put("current", None)
         return self.show("Moved to the end.")
 
