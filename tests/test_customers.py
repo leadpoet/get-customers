@@ -132,8 +132,10 @@ class FindCase(Case):
         self.customers.handle("go", self.code("go"))
         body = self.api.requests[0]
         self.assertEqual(body["lead_type"], "high_intent")
-        self.assertEqual(body["intent_signals"], "Expansion: opened a new depot or distribution center (past 45 days)\n"
-                                                 "Hiring: posted a Dispatcher or Fleet Supervisor role (past 30 days)")
+        self.assertEqual(body["intent_signals"], "Posted a Dispatcher role that names shift handovers (within the past 30 days).\n"
+                                                 "Opened a new depot that adds a second driver shift (within the past 45 days).")
+        self.assertTrue(body["request_description"].startswith("Regional delivery and freight companies with shift-based drivers.\n"
+                                                               "Target roles: VP Operations, Head of Logistics."))
         self.assertIn("for a recent buying signal", self.customers.handle("", ""))
 
     def test_without_a_signal_it_never_claims_one(self):
@@ -186,6 +188,20 @@ class FindCase(Case):
         self.api.state = "completed"
         self.assertIn("3 verified contacts", self.customers.advance())
         self.assertEqual(self.customers.advance(), "")
+
+    def test_the_ping_says_why_each_company_and_never_echoes_the_request(self):
+        self.customers.handle("go", self.code("go"))
+        body = self.api.requests[0]
+        real = self.api.pipeline_contacts
+        copies = {"Tallgrass Dental": body["request_description"].upper() + ".", "Harbor Lane Roasters": " N/A "}
+        self.api.pipeline_contacts = lambda icp: [{**row, "icp_details": copies.get(row["company"], row.get("icp_details"))}
+                                                  for row in real(icp)]
+        self.api.state = "completed"
+        text = self.customers.advance()
+        self.assertIn("Why each company:\n• Pinecrest Freight: Posted a night dispatcher role", text)
+        self.assertNotIn("Harbor Lane", text)
+        self.assertNotIn("Tallgrass", text)
+        self.assertEqual([person["why"] != "" for person in self.customers.job()["people"]], [True, False, False])
 
     def test_another_workspaces_contacts_are_ignored(self):
         self.customers.handle("go", self.code("go"))
@@ -748,7 +764,7 @@ class ProofCase(unittest.TestCase):
     def test_a_brief_fact_cannot_change_the_quotes_number(self):
         from leadpoet_plugin.brief import validate_brief
         scan = Scan("a.example", [Page("https://a.example/", "t", "We run 150 offices across the whole of Ohio")])
-        raw = {"summary": "s", "buyers": ["b"], "company_fit": "c",
+        raw = {"summary": "s", "roles": ["b"], "buyer_description": "c",
                "facts": [{"text": "They run 5 new offices in Ohio.", "quote": "We run 150 offices across the whole of Ohio", "url": "https://a.example/"}]}
         self.assertIsNone(validate_brief(raw, scan))
 
@@ -839,7 +855,7 @@ class EvidenceTests(unittest.TestCase):
         scan = Scan("basecamp.com", [Page("https://b/", "t", "One project, free forever. Pro Unlimited has no limits on projects.")])
         def fact(text, quote):
             return {"text": text, "quote": quote, "url": "https://b/"}
-        raw = {"summary": "s", "buyers": ["b"], "company_fit": "c", "product_name": "Basecamp", "facts": [
+        raw = {"summary": "s", "roles": ["b"], "buyer_description": "c", "product_name": "Basecamp", "facts": [
             fact("Basecamp has a free plan for one personal project.", "One project, free forever."),
             fact("Pro Unlimited has no limits on projects.", "Pro Unlimited has no limits on projects.")]}
         self.assertEqual([row["text"] for row in validate_brief(raw, scan)["facts"]], ["Pro Unlimited has no limits on projects."])
@@ -954,7 +970,7 @@ class EvidenceTests(unittest.TestCase):
 
     def test_a_link_cannot_become_the_sign_off(self):
         scan = Scan("acme.com", [Page("https://a/", "t", "Accept payments online in minutes.")])
-        raw = {"summary": "s", "buyers": ["b"], "company_fit": "c", "product_name": "see https://evil.example",
+        raw = {"summary": "s", "roles": ["b"], "buyer_description": "c", "product_name": "see https://evil.example",
                "facts": [{"text": "Accept payments online in minutes.", "quote": "Accept payments online in minutes.", "url": "https://a/"}]}
         self.assertEqual(validate_brief(raw, scan)["product_name"], "Acme")
 
@@ -1034,18 +1050,23 @@ class RecipientClaimTests(unittest.TestCase):
 
 
 class SignalTests(unittest.TestCase):
-    def test_only_checkable_events_survive(self):
+    def test_only_findable_events_survive(self):
         from leadpoet_plugin.brief import _signals
         kept = _signals([
-            {"type": "hiring", "detail": "posted a Recruiter role"},
-            {"type": "intent", "detail": "is researching staffing software"},  # Not a type Leadpoet checks.
-            {"type": "launch", "detail": "is likely looking for new tools"},  # A guess, not an event.
-            {"type": "funding", "detail": "see https://evil.example"},
-            {"type": "hiring", "detail": "Posted a Recruiter role."},  # The same signal again.
-            {"type": "expansion", "detail": "opened a new branch office"},
-            {"type": "leadership", "detail": "named a new VP of Sales"},
+            {"source": "community_social_and_review_sites", "description": "A named ops lead posts about lost handovers. Source: LinkedIn post, past 60 days"},
+            {"source": "job_postings", "description": "Posted a Dispatcher role naming handovers. Source: Indeed posting, past 30 days"},
+            {"source": "job_postings", "description": "A second job signal. Source: Indeed posting, past 30 days"},  # One per source.
+            {"source": "funding_and_company_news", "description": "Is likely evaluating new tools. Source: news, past 45 days"},  # A guess.
+            {"source": "technology_footprint", "description": "Adopted a new routing tool, with no place to look it up"},
+            {"source": "intent", "description": "Researching handover software. Source: Bombora, past 7 days"},  # Not a source.
+            {"source": "company_website_and_press_releases", "description": "See https://evil.example now. Source: site, past 30 days"},
         ])
-        self.assertEqual([signal["detail"] for signal in kept], ["posted a Recruiter role", "opened a new branch office"])
+        self.assertEqual([signal["source"] for signal in kept], ["job_postings", "community_social_and_review_sites"])
+
+    def test_the_request_reads_like_the_apps_form(self):
+        from leadpoet_plugin.brief import signal_line
+        self.assertEqual(signal_line({"source": "job_postings", "description": "Posted a Dispatcher role. Source: Indeed posting, past 30 days"}),
+                         "Posted a Dispatcher role (within the past 30 days).")
 
 
 class ManySearchesCase(Case):
@@ -1119,7 +1140,7 @@ class ReasoningBudgetTests(unittest.TestCase):
             "summary": "Coffee subscriptions for offices.",
             "facts": [{"text": "It roasts its organic coffee weekly.", "quote": "We roast organic coffee every week",
                        "url": "https://a.example/"}],
-            "buyers": ["Office Manager"], "company_fit": "Offices with staff on site.",
+            "roles": ["Office Manager"], "buyer_description": "Offices with staff on site.",
         })
 
         class ThinkingLlm:

@@ -6,7 +6,7 @@ Send your website. Get customers.
 /customers yoursite.com
 ```
 
-**Find.** Hermes reads your site and works out who should buy. Every fact it uses comes with the quote and page that prove it. Leadpoet then finds verified contacts.
+**Find.** Hermes reads your site and fills Leadpoet's full lead request: who buys, the roles that decide, and the buying signals that say now is the time. Every fact it uses comes with the quote and page that prove it. Leadpoet then finds verified contacts at companies showing a recent signal.
 
 **Write.** Each person gets three emails in your voice. Hermes reads their company's site for something specific and quotes it. If the quote isn't really on that page, the line is thrown out. No source means no line.
 
@@ -86,8 +86,8 @@ It prints one `hermes cron create` line to run. The check uses no model, so it c
 
 ## Good to know
 
-- The brief names one segment, its buyers and one or two buying signals a researcher can check, such as a posted role or a new office. Leadpoet looks for companies that show one recently.
-- Finding contacts usually takes 1 to 2 days. Each company is checked against your profile and its buying signal, and every contact is verified. Hermes messages you when they land.
+- The brief names one kind of buyer, the roles that decide, and 3 to 5 buying signals, at most one from each place a researcher can check: job postings, funding and news, technology, the company's own site, and community or review sites. Each has a time window, such as a role posted in the past 30 days. Guesses like "is evaluating tools" are thrown out.
+- Finding contacts usually takes 1 to 2 days. Each company is checked against your profile and its buying signal, and every contact is verified. Hermes messages you when they land, with Leadpoet's note on why each company fits.
 - A search is 10 companies, the smallest Leadpoet runs, which is exactly what the free credits buy.
 - Each person becomes their own small campaign in Leadpoet, because every email is different.
 - Sending needs a connected inbox and your sender details in Leadpoet. Hermes tells you if either is missing.

@@ -16,9 +16,11 @@ _PAGES = {
 }
 PEOPLE = [
     {"id": "demo-marcus", "query_id": "demo-find", "name": "Marcus Oyelaran", "role": "VP Operations", "company": "Pinecrest Freight",
-     "email": "marcus@pinecrest-freight.example", "website": "https://pinecrest-freight.example/"},
+     "email": "marcus@pinecrest-freight.example", "website": "https://pinecrest-freight.example/",
+     "icp_details": "Posted a night dispatcher role on Oct 28 that asks for clean shift handovers."},
     {"id": "demo-priya", "query_id": "demo-find", "name": "Priya Raman", "role": "Head of Logistics", "company": "Harbor Lane Roasters",
-     "email": "priya@harborlaneroasters.example", "website": "https://harborlaneroasters.example/"},
+     "email": "priya@harborlaneroasters.example", "website": "https://harborlaneroasters.example/",
+     "icp_details": "Launched a wholesale program in October that runs its own van routes to cafes."},
     {"id": "demo-lena", "query_id": "demo-find", "name": "Lena Fischer", "role": "Practice Director", "company": "Tallgrass Dental",
      "email": "lena@tallgrassdental.example", "website": "https://tallgrassdental.example/"},
 ]
@@ -30,11 +32,13 @@ _BRIEF = {
                "quote": "Teams cut handover time by 40 percent in the first month", "url": f"{SELLER}/"},
               {"text": "Sunnyday works on any phone, and the handover is waiting when the next shift starts.",
                "quote": "Sunnyday works on any phone, and the handover is waiting when the next shift starts", "url": f"{SELLER}/"}],
-    "buyers": ["VP Operations", "Head of Logistics"], "company_fit": "Regional delivery and freight companies with shift-based drivers.",
-    "industries": ["Freight", "Food distribution"], "company_sizes": ["50–200 employees"], "countries": [],
-    "exclude": ["Solo couriers"],
-    "signals": [{"type": "expansion", "detail": "opened a new depot or distribution center"},
-                {"type": "hiring", "detail": "posted a Dispatcher or Fleet Supervisor role"}],
+    "roles": ["VP Operations", "Head of Logistics"],
+    "buyer_description": "Regional delivery and freight companies with shift-based drivers.",
+    "company_sizes": ["50–200 employees"], "countries": [], "exclude": ["Solo couriers"],
+    "signals": [
+        {"source": "job_postings", "description": "Posted a Dispatcher role that names shift handovers. Source: LinkedIn Jobs posting, past 30 days"},
+        {"source": "funding_and_company_news", "description": "Opened a new depot that adds a second driver shift. Source: regional business news, past 45 days"},
+    ],
     "problem": "Shift handovers lose details and slow the next route.",
     "voice": "Plain, warm, short sentences, never salesy.",
 }

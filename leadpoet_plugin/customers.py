@@ -128,6 +128,43 @@ def signature_then_footer(extra: str, compliance: dict) -> bool:
     return any(start <= MAX_SIGNATURE_CHARS and footer_is_known(extra[start:], compliance) for start in starts)
 
 
+
+_FILLER = {"0", "x", "na", "nan", "nil", "none", "null", "undefined", "unknown", "pending",
+           "tba", "tbd", "todo", "notapplicable", "notavailable"}
+
+
+def _comparable(text: str) -> str:
+    return re.sub(r"[.!;:,\s]+$", "", re.sub(r"\s+", " ", text.lower()).strip())
+
+
+def account_note(note: object, *requests: dict | None) -> str:
+    """Leadpoet's "why this account" note, as the app shows it.
+
+    A new account starts with the request's own text as a placeholder, which says what
+    was asked for, not why this company fits, so a copy of it never counts. Nor does filler.
+    """
+    if not isinstance(note, str):
+        return ""
+    text = _comparable(note)
+    if not re.sub(r"[^\w]", "", text) or re.sub(r"[^\w]", "", text) in _FILLER:
+        return ""
+    asked = [_comparable(str((request or {}).get(key) or ""))
+             for request in requests for key in ("request_description", "intent_signals")]
+    if any(text in part for part in asked):
+        return ""
+    return re.sub(r"\s+", " ", note).strip()[:300]
+
+
+def _arrivals(people: list[dict]) -> str:
+    """Who arrived and, when Leadpoet published one, why each company fits."""
+    noted = [person for person in people if person.get("why")]
+    head = f"{len(people)} verified contacts are in."
+    if not noted:
+        return head
+    rows = [f"• {person['company']}: {person['why']}" for person in noted]
+    return head + " Why each company:\n" + "\n".join(rows)
+
+
 class Customers:
     def __init__(self, api: Any, store: Any, llm: Any = None, fetcher: Any = None,
                  now: Callable[[], float] = time.time, say: Callable[[str], Any] | None = None, key: str = _JOB):
@@ -265,7 +302,7 @@ class Customers:
         try:
             host = re.sub(r"^https?://(www\.)?", "", url).split("/")[0]
             self._progress(f"Reading {host}: working out who buys from you, who makes the call, "
-                           "and the quotes that prove each claim. About 20 seconds.")
+                           "the buying signals that say now is the time, and the quotes that prove each claim. About 30 seconds.")
             scan = scan_site(url, fetcher=self.fetcher) if self.fetcher else scan_site(url)
         except SiteError as error:
             return f"{error.args[0]}\n\n{_PASTE_INSTEAD}"
@@ -442,14 +479,16 @@ class Customers:
             job["stage"] = "failed"
             job["failure"] = (request.get("progress") or {}).get("message") or "Leadpoet couldn't finish this request."
         elif status in ("ready", "completed") or state == "ready":
-            people = self._load_people(job)
+            people = self._load_people(job, request)
             job["delivered_empty"] = not people
             if people:
                 job.update(stage="ready", people=people)
         self.save(job)
 
-    def _load_people(self, job: dict) -> list[dict]:
+    def _load_people(self, job: dict, request: dict) -> list[dict]:
         rows, seen, people = self.api.pipeline_contacts(job.get("icp_id")), set(), []
+        # The live request is what the placeholder copied. The brief's own text covers a request adopted from the app.
+        asked = (request, {"request_description": briefs.description(job["brief"]), "intent_signals": briefs.signals_text(job["brief"])})
         for row in rows:
             company = str(row.get("company") or "").strip().lower()
             if (row.get("query_id") not in {job["query_id"], *job.get("query_ids", [])} or not row.get("email") or not company or company in seen
@@ -458,6 +497,7 @@ class Customers:
             seen.add(company)
             people.append({"id": row["id"], "name": row.get("name") or "", "role": row.get("role") or "",
                            "company": row.get("company") or "", "email": row["email"], "website": row.get("website") or "",
+                           "why": account_note(row.get("icp_details"), *asked),
                            "state": "research", "lines": [], "dropped": 0})
         return people[:COMPANIES]
 
@@ -535,7 +575,10 @@ class Customers:
         return code_for(job["id"], *[self._person_code(job, person) for person in people])
 
     def _emails(self, person: dict) -> list[str]:
-        lines = [f"{person['name']}, {person['role']} at {person['company']}", person["email"], ""]
+        lines = [f"{person['name']}, {person['role']} at {person['company']}", person["email"]]
+        if person.get("why"):
+            lines.append(f"Why them: {person['why']}")
+        lines.append("")
         if person["lines"]:
             for entry in person["lines"]:
                 lines += [f"Personal line: {entry['line']}", f"Source: \"{entry['quote']}\"", entry["url"], ""]
@@ -854,7 +897,7 @@ class Customers:
     def _parked_news(self, job: dict) -> str:
         """Commands in a background search's news must not act on the search that's open."""
         if job["stage"] == "ready":
-            return (f"{len(job['people'])} verified contacts are in.\n"
+            return (_arrivals(job["people"]) + "\n"
                     f"Open it to write their emails: /customers open {_site(job)}")
         return self._stage_text(job)
 
@@ -908,12 +951,12 @@ class Customers:
         if stage == "finding" and job.get("delivered_empty"):
             return "Leadpoet finished, but I can't see a contact with an email yet. Check Pipeline in Leadpoet. /customers check looks again."
         if stage == "finding":
-            checked = "against your profile and for a recent buying signal" if job["brief"].get("signals") else "against your profile"
+            checked = "against your profile and for a recent buying signal" if briefs.signals_text(job["brief"]) else "against your profile"
             return (f"Leadpoet is on it. Each company is checked {checked}, "
                     "and every contact is verified, so this usually takes 1 to 2 days.\n\n"
                     "I'll message you here the moment they're in. Waiting costs no tokens.")
         if stage == "ready":
-            return f"{len(job['people'])} verified contacts are in. Write their emails: /customers write"
+            return _arrivals(job["people"]) + "\nWrite their emails: /customers write"
         if stage == "writing":
             return "Still researching. /customers write continues."
         if stage == "reviewing":
