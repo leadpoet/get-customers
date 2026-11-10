@@ -170,6 +170,11 @@ class LeadpoetApi:
                 break
         return drafts
 
+    def queued_messages(self) -> list[dict]:
+        data = self._call("GET", "/outreach/queued")
+        rows = data.get("messages") if isinstance(data, dict) else None
+        return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
     def approve_drafts(self, approvals: list[dict]) -> dict:
         data = self._call("POST", "/outreach/review/approve",
                           body={"approvals": approvals, "only_review_ready": True})

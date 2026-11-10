@@ -1058,10 +1058,23 @@ class Customers:
             sequences = f"{launched} sequence{'s' if launched != 1 else ''}"
             text = (f"Demo finished, and nothing was sent. For real, {sequences} would now run, each stopped by any reply.\nNow answer a reply: /desk"
                     if getattr(self.api, "demo", False) else f"Live. {sequences} running, stopped by any reply. Answer them with /desk.")
-            return text + (f"\n{len(held)} held back by Leadpoet's safety checks." if held else "")
+            return text + self._first_send(job) + (f"\n{len(held)} held back by Leadpoet's safety checks." if held else "")
         if stage == "failed":
             return f"{job.get('failure')} No more credits will be used. /customers reset starts over."
         return "All done. /customers reset starts a new one."
+
+    def _first_send(self, job: dict) -> str:
+        """When the next of these emails leaves, so "Live" never reads as "nothing is happening"."""
+        if getattr(self.api, "demo", False) or not hasattr(self.api, "queued_messages"):
+            return ""
+        ours = {row["id"] for row in job["people"] if row["state"] == "launched"}
+        try:
+            times = [_timestamp(row.get("scheduled_for") or row.get("estimated_send_at")) for row in self.api.queued_messages()
+                     if str(row.get("lead_id")) in ours and row.get("display_state") == "scheduled"]
+        except ApiError:
+            return ""
+        times = [moment for moment in times if moment]
+        return f"\nThe next email goes out {_from_now(min(times) - time.time())}." if times else ""
 
     def _offer(self, job: dict) -> str:
         code = self._brief_code(job)
@@ -1140,3 +1153,15 @@ def _timestamp(value: Any) -> float | None:
         return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
     except ValueError:
         return None
+
+
+def _from_now(seconds: float) -> str:
+    minutes = max(0, round(seconds / 60))
+    if minutes < 2:
+        return "in a minute or two"
+    if minutes < 60:
+        return f"in about {minutes} minutes"
+    hours = round(minutes / 60)
+    if hours < 24:
+        return f"in about {hours} hour{'s' if hours != 1 else ''}"
+    return f"in about {round(hours / 24)} day{'s' if round(hours / 24) != 1 else ''}"

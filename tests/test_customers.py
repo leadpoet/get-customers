@@ -314,6 +314,25 @@ class LaunchCase(Case):
         self.customers.advance()
         self.assertEqual(self.customers.job()["stage"], "live")
 
+    def test_live_says_when_the_next_email_goes_out(self):
+        import time as clock
+        from datetime import datetime, timezone
+        at = lambda minutes: datetime.fromtimestamp(clock.time() + minutes * 60, timezone.utc).isoformat()
+        self.to_review()
+        self.customers.handle("all", self.all_code())
+        self.customers.advance()
+        self.assertEqual(self.customers.job()["stage"], "live")
+        self.assertNotIn("next email", self.customers.handle("", ""))
+        self.api.queued_messages = lambda: [
+            {"lead_id": "someone-else", "display_state": "scheduled", "scheduled_for": at(5)},
+            {"lead_id": "demo-marcus", "display_state": "sent", "scheduled_for": at(10)},
+            {"lead_id": "demo-priya", "display_state": "scheduled", "scheduled_for": at(181)}]
+        self.assertIn("The next email goes out in about 3 hours.", self.customers.handle("", ""))
+        def broken():
+            raise ApiError("down", 503)
+        self.api.queued_messages = broken
+        self.assertIn("Live.", self.customers.handle("", ""))
+
     def test_missing_sender_details_block_the_launch(self):
         self.to_review()
         self.api.sender_missing = ["postal_address"]
