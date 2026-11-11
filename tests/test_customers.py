@@ -1075,6 +1075,42 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(write_sequence(Llm(), {**self.BRIEF, "problem": "p", "voice": "v"}))
         self.assertIn("Act fast", calls[1])
 
+    def test_a_seller_named_like_its_address_still_gets_its_emails(self):
+        """Trigger.dev and Cal.com read as links, so every draft was refused and /customers write gave up."""
+        brief = {"product_name": "Trigger.dev", "problem": "Long jobs hit serverless timeouts and lose progress on redeploys.", "facts": [
+            {"text": "t", "said_by": "seller", "quote": "Build durable AI agents that survive refreshes, redeploys, and crashes."}]}
+        body = ("Hi {first_name},\n[[PERSONAL]]\nIf long-running jobs lose progress on redeploy, Trigger.dev lets you build durable AI agents "
+                "that survive refreshes, redeploys, and crashes [1].\nIs this worth a short call?\nBest,\n{sender}")
+        later = "Hi {first_name},\nTrigger.dev lets you build durable AI agents [1].\nWho handles this at {company}?\nBest,\n{sender}"
+        mail = {"emails": [{"subject": "Redeploys lose progress", "body": body}] + [{"subject": "Serverless timeouts", "body": later}] * 2}
+        self.assertTrue(validate_sequence(mail, brief))
+        from leadpoet_plugin.writer import check_sequence
+        for address in ("Trigger.dev/docs", "app.trigger.dev", "hello@trigger.dev", "evil.example"):
+            mail["emails"][1]["body"] = later.replace("Who handles this", f"Is {address} useful, and who handles this")
+            self.assertIn("link", check_sequence(mail, brief)[1], address)
+
+    def test_a_subject_may_end_on_a_plain_word_like_work(self):
+        brief = {"product_name": "Stripe", "problem": "Billing by hand creates manual work and errors.",
+                 "facts": [{"text": "t", "said_by": "seller", "quote": "Accept payments online in minutes"}]}
+        mail = self.emails("Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?")
+        mail["emails"][0]["subject"] = "Manual work"
+        self.assertTrue(validate_sequence(mail, brief))
+
+    def test_asking_what_is_on_their_list_offers_nothing(self):
+        ok = self.emails("Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nIs this still on your list for this year?")
+        self.assertTrue(validate_sequence(ok, self.BRIEF))
+        self.assert_refused("Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWant the list?")
+
+    def test_good_emails_with_a_refused_subject_are_kept_when_later_drafts_fail(self):
+        """Linear's first draft only had a subject wrong. Three worse drafts later, the user had nothing."""
+        first = self.emails("Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?")
+        first["emails"][0]["subject"] = "Stale rosters"
+        worse = json.dumps(self.emails("Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nAct fast.\nWorth a call?"))
+        replies = [json.dumps(first), worse, worse, worse]
+        llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=replies.pop(0)))
+        emails = write_sequence(llm, {**self.BRIEF, "problem": "p", "voice": "v"})
+        self.assertEqual((emails[0]["subject"], replies), ("Question for {company}", []))
+
     def test_a_link_cannot_become_the_sign_off(self):
         scan = Scan("acme.com", [Page("https://a/", "t", "Accept payments online in minutes.")])
         raw = {"summary": "s", "roles": ["b"], "buyer_description": "c", "product_name": "see https://evil.example",
@@ -1647,3 +1683,16 @@ class RequestPathFindingsCase(unittest.TestCase):
         text = customers.start("other.app")
         self.assertIn("linear.app is saved. Back to it: /customers open linear.app", text)
         self.assertNotIn("keeps running", text)
+
+    def test_a_claim_lifted_from_mid_sentence_starts_with_a_capital(self):
+        """cal.com, posthog.com and resend.com each showed a proof line starting small."""
+        page = "With Resend you can start sending emails in minutes. sweetgreen serves warm bowls and plates every day."
+        scan = Scan("resend.com", [Page("https://a/", "Resend", page)])
+        facts = [{"text": "start sending emails in minutes", "said_by": "seller", "url": "https://a/",
+                  "quote": "start sending emails in minutes"},
+                 {"text": "sweetgreen serves warm bowls and plates every day", "said_by": "seller", "url": "https://a/",
+                  "quote": "sweetgreen serves warm bowls and plates every day."}]
+        kept = [fact["text"] for fact in validate_brief(self.raw(product_name="Resend", facts=facts), scan)["facts"]]
+        self.assertEqual(kept[0], "Start sending emails in minutes")
+        small = validate_brief(self.raw(product_name="sweetgreen", facts=facts[1:]), Scan("sweetgreen.com", scan.pages))
+        self.assertEqual(small["facts"][0]["text"], "sweetgreen serves warm bowls and plates every day")

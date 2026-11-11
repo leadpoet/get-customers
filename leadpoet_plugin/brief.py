@@ -180,6 +180,9 @@ def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = Non
                 refused.append(f'"{text}" quotes {voice or "a price, which changes and is not a reason to buy"}.')
             continue
         if len(text) >= 20 and quote_is_on_page(scan, url, quote) and not word:
+            # A claim lifted from mid-sentence still reads as a sentence. A brand that writes itself small stays small.
+            if text[0].islower() and not text.lower().startswith(product.lower()):
+                text = text[0].upper() + text[1:]
             facts.append({"text": text, "quote": quote, "url": url})
         elif refused is not None:
             refused.append(f'"{text}" uses {word or "a quote that is not on that page"}.')

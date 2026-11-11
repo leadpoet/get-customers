@@ -12,14 +12,17 @@ from .website import numbers_in
 # Greek, Cyrillic, invisible and full-width characters can make a banned word look like a harmless one.
 _LOOKALIKE = re.compile("[Ͱ-ϿЀ-ԯ\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff＀-￯]")
 NEGATION = re.compile(r"\b(?:not|no|never|without|cannot|none|nor|neither)\b|n['’]t\b", re.IGNORECASE)
-# Grammar only. A word that makes a promise (all, best, faster, free, only) must be in the source.
-GLUE = frozenset(
+# Words a phrase can't end on. "Time spent on" stops mid-phrase. "Manual work" doesn't.
+GRAMMAR = frozenset(
     "a an the and or but so to of in on at for from with by as into per via is are was were be been being am do does did "
     "it its this that these those which who whom whose what when where how why i me my we us our you your yours they "
     "them their he him his she her has have had having can could will would may might should also just then than there "
     "here if up out over about not no never without cannot none nor neither don't doesn't isn't aren't won't can't "
+    "each both any some".split())
+# Grammar and plain verbs. A word that makes a promise (all, best, faster, free, only) must be in the source.
+GLUE = GRAMMAR | frozenset(
     "help helps let lets give gives offer offers include includes provide provides use uses using get gets keep keeps "
-    "work works each both any some".split())
+    "work works".split())
 
 
 def has_lookalike(text: str) -> bool:

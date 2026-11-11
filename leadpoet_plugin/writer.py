@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from .evidence import GLUE, NEGATION, has_lookalike, unsupported
+from .evidence import GLUE, GRAMMAR, NEGATION, has_lookalike, unsupported
 from .website import MODEL_MAX_TOKENS, Scan, normalize_site, numbers_in, parse_json_object, quote_is_on_page, scan_site, without_tag
 
 PERSONAL = "[[PERSONAL]]"
@@ -34,6 +34,7 @@ _MARKETING_VOICE = re.compile(r"\b(?:you|your|yours|we|our|ours|us)\b")  # Lower
 # A person can only be offered what the site really has, or a reply and a short call.
 _OFFERS = frozenset("sample samples demo demos guide guides report reports trial trials audit audits list lists sheet sheets "
                     "deck decks pilot pilots video videos overview breakdown walkthrough study studies template templates".split())
+_THEIR_OWN = re.compile(r"\bon your lists?\b", re.IGNORECASE)  # "Is this on your list?" is the reader's list, not something offered.
 _SUBJECT_WORDS = frozenset("quick question thought idea note last follow following next".split())
 _NO_SUBJECT_OPENING = re.compile(r"(?:they|their|it|its|he|she|we|our|this|these|those)\b", re.IGNORECASE)
 # True or not, these don't belong in a cold opener.
@@ -283,7 +284,8 @@ def _sentence_problem(sentence: str, brief: dict, proof_words: set[str]) -> tupl
             return f'"{plain}" is unfinished. Give the If a second half after a comma.', False
         if not plain.endswith("?") and not _READER_TAIL.match(plain.rpartition(",")[2].strip()):
             return f'"{plain}" promises something with no source. After the comma, stay on the reader: start with that, your or you, and promise nothing.', False
-        offered = _words(plain) & _OFFERS - proof_words if plain.endswith("?") and not re.match(r"who\b", plain, re.IGNORECASE) else set()  # "Who handles lead lists?" offers nothing.
+        asks = plain.endswith("?") and not re.match(r"who\b", plain, re.IGNORECASE)  # "Who handles lead lists?" offers nothing.
+        offered = _words(_THEIR_OWN.sub("", plain)) & _OFFERS - proof_words if asks else set()
         return (f'"{plain}" offers something no source mentions: {sorted(offered)[0]}.' if offered else ""), False
     return f'"{plain}" has no proof number. Cite one, or make it a question or an If sentence.', False
 
@@ -301,7 +303,7 @@ def _subject_problem(subject: str, brief: dict, quotes: str, where: str) -> str:
     if "{company}" in subject and lowered not in ("question for {company}", f"{brief['product_name'].lower()} for {{company}}"):
         return f"The subject of {where} misuses {{company}}. Use Question for {{company}}, or leave it out."
     last = (re.findall(r"[a-z0-9']+", lowered) or [""])[-1]
-    if "{company}" not in subject and last in GLUE:
+    if "{company}" not in subject and last in GRAMMAR:
         return f'The subject of {where} stops mid-phrase on "{last}".'
     return ""
 
@@ -309,7 +311,7 @@ def _subject_problem(subject: str, brief: dict, quotes: str, where: str) -> str:
 def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -> tuple[list[dict] | None, str]:
     """Return three clean emails, or the first thing that's wrong so the model can fix it.
 
-    On the last try, a subject that fails is swapped for a safe one instead of losing the emails."""
+    With safe_subjects, a subject that fails is swapped for a safe one instead of losing the emails."""
     emails = raw.get("emails") if raw and isinstance(raw.get("emails"), list) else []
     if len(emails) != 3:
         return None, "Write exactly three emails, as JSON."
@@ -326,7 +328,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
         where = f"Email {index + 1}"
         if not subject or not bare or len(subject) > MAX_TEMPLATE_SUBJECT_CHARS or len(bare) > MAX_TEMPLATE_BODY_CHARS:
             return None, f"{where} is empty or too long."
-        if _FORBIDDEN.search(subject) or _FORBIDDEN.search(bare) or has_lookalike(subject + bare):
+        if _has_forbidden(subject, brief) or _has_forbidden(bare, brief) or has_lookalike(subject + bare):
             return None, f"{where} has a link, an address, an em dash or an unusual character."
         if bare.count(PERSONAL) != (1 if index == 0 else 0):
             return None, f"Only email one has {PERSONAL}, exactly once."
@@ -362,6 +364,12 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
     return cleaned, ""
 
 
+def _has_forbidden(text: str, brief: dict) -> bool:
+    """Cal.com and Trigger.dev are the sellers' names. Any other address is a link, and so is app.cal.com or cal.com/pricing."""
+    name = rf"(?<![\w.@/-]){re.escape(brief['product_name'])}(?![\w/-]|\.\w)"
+    return bool(_FORBIDDEN.search(re.sub(name, "", text, flags=re.IGNORECASE)))
+
+
 def _tidy(body: str) -> str:
     """One blank line between thoughts, and the sign-off kept together with the name."""
     spaced = "\n\n".join(line.strip() for line in body.splitlines() if line.strip())
@@ -378,14 +386,15 @@ def write_sequence(llm: Any, brief: dict, voice_sample: str = "") -> list[dict] 
     prompt = (f"Sender's company: {brief['product_name']}\nThe buyer: {brief.get('company_fit', '')}\n"
               f"The buyer's problem: {brief['problem']}\n"
               f"Voice: {brief['voice']}{sample}\nProof list:\n{proof}")
-    problem = ""
-    for attempt in range(SEQUENCE_TRIES):  # Tell the model exactly what broke. Code decides, never the model.
+    problem, spare = "", None
+    for _ in range(SEQUENCE_TRIES):  # Tell the model exactly what broke. Code decides, never the model.
         asked = f"{prompt}\n\nYour last draft was refused. {problem} Write all three emails again." if problem else prompt
-        last = attempt == SEQUENCE_TRIES - 1
-        emails, problem = check_sequence(_complete(llm, _SEQUENCE_SYSTEM, asked, "leadpoet sequence"), brief, safe_subjects=last)
+        raw = _complete(llm, _SEQUENCE_SYSTEM, asked, "leadpoet sequence")
+        emails, problem = check_sequence(raw, brief)
         if emails:
             return emails
-    return None
+        spare = spare or check_sequence(raw, brief, safe_subjects=True)[0]  # Good emails with a refused subject are kept in hand.
+    return spare
 
 
 def fits(touches: list[dict]) -> bool:
