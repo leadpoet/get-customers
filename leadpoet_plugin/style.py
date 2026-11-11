@@ -30,7 +30,7 @@ _SHELL = re.compile(rf"{_START}hermes (?:config set LEADPOET_API_KEY <[^>\n]+>|g
 
 _EMAIL = re.compile(r"^Email \d+ \([^)\n]{1,60}\):")
 _LABEL = re.compile(r"^(Who buys|Why they buy|Roles|Size|Where|Why them|Personal line|Source|Your reply|"
-                    r"Buying signals Leadpoet looks for|Proof from \S{1,80}|Email \d+ \([^)\n]{1,60}\)):")
+                    r"Buying signals Leadpoet looks for|Proof from (?:your own description|\S{1,80})|Email \d+ \([^)\n]{1,60}\)):")
 # What follows these is text that will be sent as it stands, so it's shown as it stands, up to one of these.
 # Whole lines only, so a body line that merely begins the same way stays part of the body.
 _EMAIL_END = re.compile(r"^(?:---|Leadpoet adds your booking link, if you've set one, .*|"

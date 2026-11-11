@@ -382,7 +382,9 @@ class Customers:
                    "created_at": self.now(), "typed": re.sub(r"^https?://(www\.)?", "", source).split("/")[0].lower()}
         if job and job["stage"] not in _SETTLED:
             self._park(job)
-            note = f"{_site(job)} keeps running, and I'll ping you when it moves. Back to it: /customers open {_site(job)}\n\n"
+            # A search still waiting on a key or credits has not started, so nothing is running yet.
+            state = "is saved" if job["stage"] in ("needs_key", "needs_credits") else "keeps running, and I'll ping you when it moves"
+            note = f"{_site(job)} {state}. Back to it: /customers open {_site(job)}\n\n"
         else:
             self._retire(job)
             note = ""

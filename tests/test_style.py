@@ -74,6 +74,7 @@ class MarkCase(unittest.TestCase):
 
     def test_proof_from_a_site_with_a_port_is_one_label(self):
         self.assertEqual(mark("Proof from acme.com:8080/docs:"), "**Proof from acme.com:8080/docs:**")
+        self.assertEqual(mark("Proof from your own description:"), "**Proof from your own description:**")
 
     def test_a_name_with_its_own_marks_is_not_wrapped_in_more(self):
         self.assertEqual(mark("• Acme *Labs*: Raised a round."), "• Acme *Labs*: Raised a round.")

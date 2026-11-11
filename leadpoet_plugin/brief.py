@@ -128,6 +128,8 @@ def _product_name(raw: dict, scan: Scan) -> str:
     """It ends up as a sign-off, so a link or an address can't be one."""
     name = _text(raw.get("product_name"), 120)
     label = scan.domain.split(".")[0]
+    if name.lower() == scan.domain.lower():  # Cal.com and Trigger.dev are the brands, not addresses someone pasted.
+        return name
     if not name or _NOT_A_NAME.search(name):
         return label.title()
     words = name.split()  # "Gong Revenue AI OS" is the tagline. The company is Gong.
@@ -168,6 +170,8 @@ def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = Non
         if not isinstance(fact, dict):
             continue
         text, quote, url = _text(fact.get("text"), 300), _text(fact.get("quote"), 400), _text(fact.get("url"), 2000)
+        if len(scan.pages) == 1:  # One page read, so that is where the quote must be. Pasted words have no address to name.
+            url = scan.pages[0].url
         word = unsupported(text, quote, names=f"{product} {scan.domain.split('.')[0]}")
         # A customer's words, put in the seller's mouth, would claim the customer's result as the seller's own.
         voice = "a customer's words" if fact.get("said_by") != "seller" or _singular_voice(quote) else ""

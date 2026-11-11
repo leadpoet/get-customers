@@ -1613,3 +1613,37 @@ class RequestPathFindingsCase(unittest.TestCase):
     def test_status_shows_the_next_step(self):
         customers = self.customers()
         self.assertEqual(customers.handle("status", ""), customers.handle("", ""))
+
+    def test_pasted_words_have_no_address_so_the_one_page_read_is_the_source(self):
+        """The real model answered "/" and "" for the page of an /customers about text, and every fact was refused."""
+        words = ("We make Dockhand, scheduling software for small marinas. Marina managers use it to assign slips, bill "
+                 "seasonal and transient boaters, and keep a waitlist. It replaces the paper slip map most marinas still run on.")
+        facts = [{"text": "Marina managers use it to assign slips", "said_by": "seller", "url": url,
+                  "quote": "Marina managers use it to assign slips, bill seasonal and transient boaters, and keep a waitlist."}
+                 for url in ("/", "")]
+        text = self.customers(replies=[self.raw(product_name="Dockhand", facts=facts)] * 2 + [{}]).handle("about", words)
+        self.assertIn("Proof from your own description:", text)
+        self.assertIn("/customers go", text)
+
+    def test_a_quote_that_is_not_in_the_pasted_words_is_still_refused(self):
+        words = "We make Dockhand, scheduling software for small marinas. " * 5
+        facts = [{"text": "Trusted by 400 marinas across the country", "said_by": "seller", "url": "/",
+                  "quote": "Trusted by 400 marinas across the country"}]
+        text = self.customers(replies=[self.raw(product_name="Dockhand", facts=facts)] * 2).handle("about", words)
+        self.assertIn("couldn't find enough", text)
+
+    def test_a_brand_that_is_its_own_address_keeps_its_name(self):
+        for domain, name in (("trigger.dev", "Trigger.dev"), ("cal.com", "Cal.com")):
+            with self.subTest(domain):
+                scan = Scan(domain, [Page("https://a/", name, self.QUOTE)])
+                self.assertEqual(validate_brief(self.raw(product_name=name), scan)["product_name"], name)
+        scan = Scan("linear.app", [Page("https://a/", "Linear", self.QUOTE)])
+        self.assertEqual(validate_brief(self.raw(product_name="https://linear.app"), scan)["product_name"], "Linear")
+
+    def test_a_search_waiting_on_a_key_is_saved_not_running(self):
+        customers = self.customers(replies=[self.raw()] * 2 + [{}] + [self.raw(product_name="Other")] * 2 + [{}])
+        first = customers.start("linear.app")
+        customers.handle("go", first.split("/customers go ")[1].split()[0])
+        text = customers.start("other.app")
+        self.assertIn("linear.app is saved. Back to it: /customers open linear.app", text)
+        self.assertNotIn("keeps running", text)
