@@ -270,6 +270,20 @@ class DeskCase(unittest.TestCase):
         self.assertIn("privacy or legal request", desk.show())
         self.assertEqual(llm.calls, [])
 
+    def test_our_quoted_unsubscribe_footer_is_not_their_opt_out(self):
+        api, desk = self.make([])
+        api.tasks.append(task())
+        api.inbound["e-t1"] = ("m1", "Hi Gavin, timing is good. We're hiring SDRs right now. What does it cost,\r\n"
+                               "and does it work with HubSpot? Thanks\r\n\r\n\r\n"
+                               "On Tue, Nov 10, 2026 at 7:34\u202fPM Gavin Zaentz <gavinz@seller.example> wrote:\r\n\r\n"
+                               "> Hi Reese,\r\n>\r\n> Is this worth a short call?\r\n>\r\n> --\r\n"
+                               "> Leadpoet, Inc. \u00b7 325 W 45th St, New York, NY 10036, USA\r\n"
+                               "> Don't want these? Reply \"unsubscribe\".\r\n>\r\n")
+        desk.sync()
+        shown = desk.show()
+        self.assertNotIn("not to hear from you", shown)
+        self.assertIn("/desk send", shown)
+
     def test_an_earlier_stop_outlives_a_later_hello(self):
         api, desk = self.make()
         desk.show()

@@ -248,7 +248,8 @@ class Desk:
             except ApiError:
                 return _UNREAD
         messages = conversation.get("messages") if isinstance(conversation.get("messages"), list) else []
-        texts = [str(item.get("inbound_text") or "")] + [str(m.get("text") or "") for m in messages if isinstance(m, dict) and m.get("direction") == "inbound"]
+        # Only what they typed counts: a reply quotes our own email, whose footer says "Reply unsubscribe".
+        texts = [str(item.get("inbound_text") or "")] + [new_text(str(m.get("text") or "")) for m in messages if isinstance(m, dict) and m.get("direction") == "inbound"]
         for text in texts:
             text = text.replace("’", "'")
             if _PRIVACY_WORDS.search(text):
