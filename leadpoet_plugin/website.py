@@ -162,6 +162,49 @@ class _Extractor(HTMLParser):
         return "\n".join(line for line in lines if line)
 
 
+_PLACEHOLDER = re.compile(r"^(?:https?://)?(?:www\.)?(?:your|my|other)-?(?:site|website|company|domain)\.[a-z]{2,}(?:/|$)", re.IGNORECASE)
+_SITE_TOKEN = re.compile(r"(?:https?://)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:/[^\s<>|]*)?", re.IGNORECASE)
+_NOT_FILLED_IN = re.compile(r"^<?(?:your|my)[ -]?(?:web)?site(?: here)?>?$", re.IGNORECASE)
+_WRAPPING = "<>\"'`“”‘’*"
+_EXAMPLE = "That's the example address. Send your own website after /customers.\nOr try it first: /customers demo"
+
+
+def typed_site(raw: str) -> str:
+    """The website in what someone typed into a chat, however the app or their thumbs wrapped it.
+
+    Slack sends <https://a.com|a.com>, Markdown apps send [a.com](https://a.com), and people add quotes,
+    a full stop, or a few words around the address. One address is taken. Two are not guessed between.
+    """
+    value = (raw or "").strip()
+    link = re.fullmatch(r"<([^|>\s]+)(?:\|[^>]*)?>", value) or re.fullmatch(r"\[[^\]]*\]\(([^)\s]+)\)", value)
+    if link:
+        value = link.group(1)
+    if _NOT_FILLED_IN.match(value):
+        raise SiteError(_EXAMPLE)
+    value = value.strip(_WRAPPING).rstrip(".,!?;:").strip(_WRAPPING)
+    for opener, closer in ("()", "[]"):  # Brackets around the address go. A bracket inside a path stays.
+        if value.startswith(opener) and value.endswith(closer):
+            value = value[1:-1].strip()
+    if re.search(r"\s", value) and len(value.split()) <= 6:
+        found = {match.rstrip(".,!?;:)").lower() for match in _SITE_TOKEN.findall(value)}
+        found = {site for site in found if not re.search(rf"\S@{re.escape(site)}", value.lower())}  # An email address isn't a site.
+        if len(found) == 1:
+            value = found.pop()
+    if _PLACEHOLDER.match(value):
+        raise SiteError(_EXAMPLE)
+    return value
+
+
+_PROFILE_HOSTS = {"x.com", "twitter.com", "linkedin.com", "facebook.com", "instagram.com", "tiktok.com", "youtube.com", "threads.net"}
+
+
+def profile_host(url: str) -> str:
+    """The social network, when the address is a profile on one. A bio says too little to work out who buys."""
+    parsed = urllib.parse.urlsplit(url)
+    host = re.sub(r"^(?:www|m|mobile)\.", "", (parsed.hostname or "").lower())
+    return host if host in _PROFILE_HOSTS and parsed.path.strip("/") else ""
+
+
 def normalize_site(raw: str) -> str:
     """Turn what the user typed into an https URL, or explain why it can't be one."""
     value = (raw or "").strip().strip("<>")
@@ -271,7 +314,9 @@ def fetch(url: str, *, opener: Any = _OPENER, public: Any = is_public_host) -> t
                 raise SiteError(f"Couldn't find {host}. Check the spelling.")
             raise SiteError("That website isn't on the public internet.")
         current = urllib.parse.quote(current, safe=_URL_SAFE)  # Sites do link to paths with spaces in them.
-        request = urllib.request.Request(current, headers={"User-Agent": USER_AGENT, "Accept": "text/html"})
+        request = urllib.request.Request(current, headers={"User-Agent": USER_AGENT, "Accept": "text/html",
+                                                  # A server abroad is otherwise handed its own country's translation.
+                                                  "Accept-Language": "en-US,en;q=0.9"})
         try:
             with opener.open(request, timeout=TIMEOUT_SECONDS) as response:
                 kind = response.headers.get("Content-Type", "")

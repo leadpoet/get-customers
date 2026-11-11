@@ -55,14 +55,19 @@ _SIGNAL_RULES = (
     "companies like the buyer would match it in a normal month, or it fits many unrelated products, rewrite it with the "
     "one product-specific detail. One event per signal, no lists of alternatives, no claims that anyone is evaluating, "
     "considering or seeking something, and no guessing about private plans. A signal never names this product or its "
-    "maker: a company already using it is a customer, not a prospect."
+    "maker: a company already using it is a customer, not a prospect. Code drops a signal whose event contains the word "
+    f'"or", and one longer than {SIGNAL_CHARS} characters with its source, so name one role, one tool and one problem, '
+    "and one place to look."
 )
 
 _SYSTEM = (
     "You work out who a company should sell to, using only its website. Reply with one JSON object "
     "and nothing else, with these keys: "
-    '"sells_to_businesses" (true when organizations pay for this; false when it is sold mainly to consumers, households or '
-    'patients, such as a shop, a dentist or a plumber), '
+    '"sells_to_businesses" (true when a company, a team or a person doing their job can pay for or adopt this, which '
+    'covers software, developer tools, APIs, AI models, open-source projects, marketplaces and anything with a team or '
+    'business plan, even when individuals use it too. False only when it is bought for private life: food, clothes, '
+    'health care, home repair or entertainment, such as a shop, a restaurant, a dentist or a plumber. When both people '
+    'and organizations buy, answer true and describe the organizations), '
     '"product_name" (the company or brand the home page is about, never a feature or a page name), "summary" (one plain '
     'sentence stating only what the site says the main product on the home page does and for whom, written as a plain fact '
     'about the product that never mentions the page or the site; other pages are for proof, not for a different product), '
@@ -154,7 +159,10 @@ def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = Non
         return None
     product = _product_name(raw, scan)
     if raw.get("sells_to_businesses") is False:
-        return {"consumer": True, "product_name": product, "domain": scan.domain}
+        # With nothing quoted, the page said too little to call it a consumer company: a profile, a login, a stub.
+        facts = raw.get("facts") if isinstance(raw.get("facts"), list) else []
+        said = any(isinstance(fact, dict) and _text(fact.get("quote"), 400) for fact in facts)
+        return {"consumer": True, "product_name": product, "domain": scan.domain} if said else None
     facts = []
     for fact in raw.get("facts") if isinstance(raw.get("facts"), list) else []:
         if not isinstance(fact, dict):
@@ -254,6 +262,13 @@ def _refine(llm: Any, scan: Scan, brief: dict) -> dict:
     better = dict(brief)
     fit_text = _text(raw.get("buyer_description"), 500).replace("—", ", ")
     roles, signals = _strings(raw.get("roles"), MAX_ROLES), _signals(raw.get("signals"), brief["product_name"])
+    # The editor's rewrite of a source can fail the checks. The draft's checked signal for that source then stands;
+    # a source the editor left out stays out.
+    tried = {item.get("source") for item in raw.get("signals") if isinstance(item, dict)} if isinstance(raw.get("signals"), list) else set()
+    edited = {signal["source"]: signal for signal in signals}
+    draft_signals = {signal["source"]: signal for signal in brief["signals"] if "source" in signal}
+    signals = [edited.get(source) or draft_signals[source] for source in SIGNAL_SOURCES
+               if source in edited or (source in tried and source in draft_signals)]
     if fit_text:
         better["company_fit"] = fit_text
     problem = _problem(raw.get("problem"))

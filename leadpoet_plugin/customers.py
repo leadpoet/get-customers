@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 from . import brief as briefs
 from .api import ApiError
-from .website import Page, Scan, SiteError, normalize_site, scan_site
+from .website import Page, Scan, SiteError, normalize_site, profile_host, scan_site, typed_site
 from .writer import fits, render, research_person, write_sequence
 
 LEAD_ENGINE_URL = "https://leadpoet.com/dashboard/lead-engine"
@@ -279,7 +279,7 @@ class Customers:
             argument = argument.strip().lower()  # Phones capitalise the first letter.
         if action == "":
             return self._next(job, refresh=True)
-        if action == "check":
+        if action in ("check", "status"):
             return self._next(job, refresh=True)
         if action == "list":
             return self._listing(job)
@@ -327,15 +327,18 @@ class Customers:
         if self.llm is None:
             return _NO_MODEL
         try:
-            url = normalize_site(site)
+            url = normalize_site(typed_site(site))
         except SiteError as error:
             return error.args[0]
-        host = re.sub(r"^https?://(www\.)?", "", url).split("/")[0]
+        if profile_host(url):
+            return f"That's a profile on {profile_host(url)}, not your website. Send your website: /customers yoursite.com"
+        page = re.sub(r"^https?://(www\.)?", "", url).rstrip("/")
+        host = page.split("/")[0]
         running = self._running(job, host)
         if running:
             return running
         try:
-            self._progress(f"Reading {host}: working out who buys from you, who makes the call, "
+            self._progress(f"Reading {page if len(page) <= 60 else host}: working out who buys from you, who makes the call, "
                            "the buying signals that say now is the time, and the quotes that prove each claim. About 30 seconds.")
             scan = scan_site(url, fetcher=self.fetcher) if self.fetcher else scan_site(url)
         except SiteError as error:
@@ -370,7 +373,8 @@ class Customers:
         brief = briefs.write_brief(self.llm, scan)
         if brief and brief.get("consumer"):
             return (f"{brief['product_name']} sells to consumers, so there are no companies to find for it.\n"
-                    "If you sell to businesses, say what you sell: /customers about <your text>")
+                    "If companies buy from you too, say what you sell: /customers about <your text>\n"
+                    "Or see how it works first: /customers demo")
         if brief is None:
             return f"I couldn't find enough there that I can prove. {tip}"
         created = {"id": code_for(source, str(self.now()))[:4] + hashlib.sha256(source.encode()).hexdigest()[:8],

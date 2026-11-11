@@ -1516,3 +1516,100 @@ class BreadthFindingsCase(unittest.TestCase):
         self.assertEqual(len(refused), 2)
         self.assertIn("customer's words", refused[0])
         self.assertIn("price", refused[1])
+
+
+class RequestPathFindingsCase(unittest.TestCase):
+    """Real misses from running 24 live sites to the request step with the real model, Nov 11."""
+
+    QUOTE = "Accept payments online in minutes."
+    JOBS = "Posted a Billing Engineer role to build usage-based metering. Source: LinkedIn Jobs posting, past 30 days"
+    POST = "Named head of finance's LinkedIn post on manual payout reconciliation. Source: LinkedIn post, past 90 days"
+
+    def raw(self, **over):
+        row = {"summary": "s", "roles": ["b"], "buyer_description": "c", "product_name": "Linear",
+               "facts": [{"text": self.QUOTE, "said_by": "seller", "quote": self.QUOTE, "url": "https://a/"}]}
+        row.update(over)
+        return row
+
+    def customers(self, said=None, replies=()):
+        answers = list(replies)
+
+        class Llm:
+            def complete(self, *_args, **_kwargs):
+                return SimpleNamespace(text=json.dumps(answers.pop(0)))
+
+        page = f"<title>Linear</title><p>{self.QUOTE} Teams plan and build products here.</p>" * 10
+        store = Store(Path(tempfile.mkdtemp()) / "c.db")
+        return Customers(None, store, Llm(), lambda url: (url, page), say=said)
+
+    def brief(self, draft, edit):
+        """One fact is too few, so the draft is asked for twice, then edited."""
+        answers = [draft, draft, edit]
+        llm = SimpleNamespace(complete=lambda *_args, **_kwargs: SimpleNamespace(text=json.dumps(answers.pop(0))))
+        return write_brief(llm, Scan("linear.app", [Page("https://a/", "Linear", self.QUOTE)]))
+
+    def test_a_site_typed_the_way_chat_apps_send_it_is_read(self):
+        from leadpoet_plugin.website import normalize_site, typed_site
+        typed = {
+            "Nousresearch.com.": "https://nousresearch.com/",
+            "<https://leadpoet.com|leadpoet.com>": "https://leadpoet.com/",
+            "[leadpoet.com](https://leadpoet.com)": "https://leadpoet.com/",
+            "`leadpoet.com`": "https://leadpoet.com/",
+            "**leadpoet.com**": "https://leadpoet.com/",
+            "(leadpoet.com)": "https://leadpoet.com/",
+            "leadpoet.com, thanks": "https://leadpoet.com/",
+            "my site is foo.com": "https://foo.com/",
+            "sub.domain.example.org/path_(x)": "https://sub.domain.example.org/path_(x)",
+        }
+        for said, url in typed.items():
+            with self.subTest(said):
+                self.assertEqual(normalize_site(typed_site(said)), url)
+
+    def test_the_example_address_is_not_read_as_a_site(self):
+        for said in ("yoursite.com", "<your website>", "your website", "https://www.yoursite.com/"):
+            with self.subTest(said):
+                self.assertIn("/customers demo", self.customers().start(said))
+
+    def test_two_sites_or_an_email_address_are_still_refused(self):
+        for said in ("foo.com bar.com", "write to me at sam@foo.com"):
+            with self.subTest(said):
+                self.assertIn("one website", self.customers().start(said))
+
+    def test_a_social_profile_is_not_read_as_a_website(self):
+        text = self.customers().start("https://x.com/NousResearch")  # No model reply is queued: none may be asked for.
+        self.assertIn("profile on x.com", text)
+        self.assertNotIn("consumers", text)
+
+    def test_a_consumer_verdict_with_nothing_quoted_is_not_enough(self):
+        scan = Scan("linear.app", [Page("https://a/", "Linear", self.QUOTE)])
+        self.assertIsNone(validate_brief(self.raw(sells_to_businesses=False, facts=[]), scan))
+        self.assertTrue(validate_brief(self.raw(sells_to_businesses=False), scan)["consumer"])
+
+    def test_a_consumer_company_is_shown_the_demo(self):
+        text = self.customers(replies=[self.raw(sells_to_businesses=False)]).start("linear.app")
+        self.assertIn("sells to consumers", text)
+        self.assertIn("/customers demo", text)
+
+    def test_the_progress_note_names_the_page_that_was_typed(self):
+        notes = []
+        self.customers(notes.append, [self.raw(sells_to_businesses=False)]).start("github.com/NousResearch/hermes-agent")
+        self.assertIn("Reading github.com/NousResearch/hermes-agent:", notes[0])
+
+    def test_the_drafts_checked_signal_stands_when_the_editors_rewrite_fails(self):
+        signals = [{"source": "job_postings", "description": self.JOBS},
+                   {"source": "community_social_and_review_sites", "description": self.POST}]
+        edit = {"buyer_description": "c", "roles": ["b"], "signals": [
+            {"source": "job_postings", "description": self.JOBS.replace("Billing Engineer", "Billing or Finance Engineer")},
+            {"source": "community_social_and_review_sites", "description": self.POST.replace("manual", "slow manual")}]}
+        kept = [signal["description"] for signal in self.brief(self.raw(signals=signals), edit)["signals"]]
+        self.assertEqual(kept, [self.JOBS, self.POST.replace("manual", "slow manual")])
+
+    def test_a_source_the_editor_left_out_stays_out(self):
+        signals = [{"source": "job_postings", "description": self.JOBS},
+                   {"source": "community_social_and_review_sites", "description": self.POST}]
+        edit = {"buyer_description": "c", "roles": ["b"], "signals": [{"source": "job_postings", "description": self.JOBS}]}
+        self.assertEqual([signal["source"] for signal in self.brief(self.raw(signals=signals), edit)["signals"]], ["job_postings"])
+
+    def test_status_shows_the_next_step(self):
+        customers = self.customers()
+        self.assertEqual(customers.handle("status", ""), customers.handle("", ""))

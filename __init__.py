@@ -242,7 +242,7 @@ def _trouble(error: ApiError) -> str:
     return f"Leadpoet didn't respond as expected. {error.message}"
 
 
-_CUSTOMER_ACTIONS = {"go", "open", "write", "approve", "use", "all", "skip", "list", "check", "voice", "about", "reset"}
+_CUSTOMER_ACTIONS = {"go", "open", "write", "approve", "use", "all", "skip", "list", "check", "status", "voice", "about", "reset"}
 
 
 def _watch_setup(parser: Any) -> None:
