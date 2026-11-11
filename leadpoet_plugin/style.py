@@ -30,10 +30,12 @@ _SHELL = re.compile(rf"{_START}hermes (?:config set LEADPOET_API_KEY <[^>\n]+>|g
 
 _EMAIL = re.compile(r"^Email \d+ \([^)\n]{1,60}\):")
 _LABEL = re.compile(r"^(Who buys|Why they buy|Roles|Size|Where|Why them|Personal line|Source|Your reply|"
-                    r"Buying signals Leadpoet looks for|Proof from [^:\n]{1,80}|Email \d+ \([^)\n]{1,60}\)):")
+                    r"Buying signals Leadpoet looks for|Proof from \S{1,80}|Email \d+ \([^)\n]{1,60}\)):")
 # What follows these is text that will be sent as it stands, so it's shown as it stands, up to one of these.
-_EMAIL_ENDS = ("Leadpoet adds your booking link", "---", "Approve all", "Approve these")
-_REPLY_ENDS = ("/desk ", "Fill in the [ADD")
+# Whole lines only, so a body line that merely begins the same way stays part of the body.
+_EMAIL_END = re.compile(r"^(?:---|Leadpoet adds your booking link, if you've set one, .*|"
+                        r"Approve (?:these exact emails|all \d+ exactly as shown): /customers .*)$")
+_REPLY_END = re.compile(r"^(?:/desk (?:send|edit|redraft|skip)\b.*|Fill in the \[ADD: \.\.\.\] part first\..*)$")
 _BULLET = re.compile(r"^• ([^:\n]{2,40}):(?= )")
 _LEAD = re.compile(r"^(\d+ verified contacts? (?:is|are) in\.|Approved [^\n]{1,80}\.$|Sent to [^\n]{1,120}\.$|"
                    r"Live\.|Your key is in\.|Demo finished, and nothing was sent\.|[^\n]{1,120} replied(?= \())")
@@ -64,10 +66,10 @@ def mark(text: str, marks: tuple[str, str, str, str] = MARKDOWN) -> str:
 
     lines = text.split("\n")
     out: list[str] = []
-    ends: tuple[str, ...] = ()
+    ends: re.Pattern | None = None
     for index, line in enumerate(lines):
-        if ends and (line.startswith(ends) or _EMAIL.match(line)):
-            ends = ()
+        if ends and (ends.match(line) or _EMAIL.match(line)):
+            ends = None
         if ends or line.startswith(">"):
             out.append(line)
             continue
@@ -82,7 +84,7 @@ def mark(text: str, marks: tuple[str, str, str, str] = MARKDOWN) -> str:
         elif head:
             line = head.group(1) + bold(head.group(2)) + head.group(3)
         elif label:
-            ends = _EMAIL_ENDS if _EMAIL.match(line) else _REPLY_ENDS if line.startswith("Your reply:") else ()
+            ends = _EMAIL_END if _EMAIL.match(line) else _REPLY_END if line.startswith("Your reply:") else None
             rest = line[label.end():]  # After a label come someone's words. After news comes the next step.
             line = bold(label.group(0)) + (rest if _LABEL.match(line) else _SHELL.sub(code, _COMMAND.sub(code, rest)))
         elif bullet:

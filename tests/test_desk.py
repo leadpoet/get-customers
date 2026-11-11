@@ -654,6 +654,19 @@ class PluginCase(unittest.TestCase):
         with mock.patch.object(entry, "poll_main", return_value=1):
             self.assertEqual(1, entry._watch_command(types.SimpleNamespace(action="check")))
 
+    def test_watch_without_a_key_says_how_to_add_one(self):
+        import contextlib
+        import io
+        entry = load_entry()
+        args = types.SimpleNamespace(action="watch", every="5m", deliver="telegram")
+        for key, expected in (("", True), ("a-key", False)):
+            said = io.StringIO()
+            with tempfile.TemporaryDirectory() as home, mock.patch.object(entry, "_hermes_home", return_value=Path(home)), \
+                    mock.patch.object(entry, "get_key", return_value=key), contextlib.redirect_stdout(said):
+                self.assertEqual(0, entry._watch_command(args))
+            self.assertIn("hermes cron create", said.getvalue())
+            self.assertEqual(expected, "hermes config set LEADPOET_API_KEY <your key>" in said.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

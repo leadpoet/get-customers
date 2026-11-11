@@ -209,14 +209,17 @@ class FindCase(Case):
         self.api.credits_left = 0
         self.api.credits = lambda: {"credits_remaining": 0, "plan": "free"}
         text = self.customers.handle("", "")
-        self.assertIn("Free accounts get 100 credits", text)
+        self.assertIn("New free accounts get 100 credits", text)
         self.assertNotIn("doesn't cover", text)
         self.assertIn("Describe your ideal customer", self.customers.handle("go", self.code("go")))
 
     def test_a_paid_account_with_no_credits_is_told_what_it_is_short(self):
         self.api.credits_left = 0
         self.api.credits = lambda: {"credits_remaining": 0, "plan": "growth"}
-        self.assertIn("doesn't cover", self.customers.handle("", ""))
+        offer = self.customers.handle("", "")
+        self.assertIn("doesn't cover", offer)
+        self.assertIn("Add credits here", offer)  # Confirming would only repeat the shortfall, so it asks for credits first.
+        self.assertNotIn("To confirm", offer)
         text = self.customers.handle("go", self.code("go"))  # A paid plan tops up. It has no free credits to claim.
         self.assertIn("Add credits here", text)
         self.assertNotIn("Free accounts", text)
@@ -543,6 +546,23 @@ class ReviewFindingsCase(Case):
         self.customers.handle("go", go)
         self.assertEqual(len(set(self.api.keys)), 2)
         self.assertEqual(len(self.api.requests), 1)
+
+    def test_a_refused_payment_on_a_paid_plan_shows_the_real_balance(self):
+        go = self.code("go")
+        self.api.fail_request = ApiError("no credits", status=402)
+        self.api.credits = lambda: {"credits_remaining": 60, "plan": "growth"}
+        text = self.customers.handle("go", go)
+        self.assertIn("Your balance of 60 credits", text)
+        self.assertNotIn("New free accounts", text)
+
+    def test_a_key_revoked_mid_search_says_how_to_replace_it(self):
+        self.customers.handle("go", self.code("go"))
+        def refused(query_id):
+            raise ApiError("Invalid API credential", status=401)
+        self.api.get_request = refused
+        text = self.customers.handle("check", "")
+        self.assertIn("didn't accept that API key", text)
+        self.assertIn("hermes config set LEADPOET_API_KEY <your key>", text)
 
     def test_a_repeat_go_does_not_move_the_hand_off_time(self):
         go = self.code("go")

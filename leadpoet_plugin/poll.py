@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 from .api import ApiError, LeadpoetApi
-from .customers import Customers
+from .customers import ADD_KEY, Customers
 from .desk import Desk
 from .store import Store
 
@@ -69,7 +69,7 @@ def advance(customers: Customers, store: Store) -> str:
 def main() -> int:
     key = get_key()
     if not key:
-        print("LEADPOET_API_KEY isn't available to this job. See the plugin README.", file=sys.stderr)
+        print(f"Pings need your Leadpoet API key. Add it where Hermes runs: {ADD_KEY}", file=sys.stderr)
         return 1
     api, store = LeadpoetApi(key), Store(data_dir() / "live.db")
     try:

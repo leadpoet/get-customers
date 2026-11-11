@@ -28,7 +28,7 @@ Want to see it read your real site? `/customers demo yoursite.com`. The brief is
 
 10 companies with verified contacts, email or LinkedIn outreach from one sender, and a CRM pipeline in Leadpoet that tracks every contact and reply. No card needed.
 
-Free accounts get 100 credits, enough for those 10 companies. Leadpoet takes that first request in its app, so Hermes hands you the text for each box, then picks the search up and pings you when your contacts land.
+New free accounts get 100 credits, enough for those 10 companies. Leadpoet takes that first request in its app, so Hermes hands you the text for each box, then picks the search up and pings you when your contacts land.
 
 ## Install
 

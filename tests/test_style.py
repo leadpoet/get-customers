@@ -61,6 +61,20 @@ class MarkCase(unittest.TestCase):
         reply = "Your reply:\nLive. Yes, it does.\nRun /desk status any time.\n\n/desk send 1a2b\n/desk skip"
         self.assertEqual(mark(reply), "**Your reply:**\nLive. Yes, it does.\nRun /desk status any time.\n\n`/desk send 1a2b`\n`/desk skip`")
 
+    def test_a_body_line_that_only_begins_like_an_ending_stays_in_the_body(self):
+        email = ("Email 1 (today): one click\nApprove all invoices in one click.\n---- or so\nTry /customers demo yourself.\n\n"
+                 "Sam Rivera, Founder at Sunnyday\nsam@sunnyday.example\n\n"
+                 "Leadpoet adds your booking link, if you've set one, and your legal footer.\n\nLeave them out: /customers skip")
+        shown = mark(email).split("\n")
+        self.assertEqual(shown[1:8], email.split("\n")[1:8])
+        self.assertEqual(shown[-1], "Leave them out: `/customers skip`")
+        reply = "Your reply:\nFill in the gaps later.\n/desk is where I answer.\n\nFill in the [ADD: ...] part first.\n\n/desk skip"
+        self.assertEqual(mark(reply).split("\n")[1:3], ["Fill in the gaps later.", "/desk is where I answer."])
+        self.assertTrue(mark(reply).endswith("`/desk skip`"))
+
+    def test_proof_from_a_site_with_a_port_is_one_label(self):
+        self.assertEqual(mark("Proof from acme.com:8080/docs:"), "**Proof from acme.com:8080/docs:**")
+
     def test_a_name_with_its_own_marks_is_not_wrapped_in_more(self):
         self.assertEqual(mark("• Acme *Labs*: Raised a round."), "• Acme *Labs*: Raised a round.")
         self.assertEqual(mark("1 of 2 · Sam `R` · email · new · 1 h ago"), "1 of 2 · Sam `R` · email · new · 1 h ago")

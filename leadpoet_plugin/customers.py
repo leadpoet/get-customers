@@ -476,7 +476,13 @@ class Customers:
                 # Leadpoet remembers this refusal against the key, so a top-up needs a new one. Nothing was charged.
                 job.pop("find_body", None)
                 job["find_attempt"] = job.get("find_attempt", 0) + 1
-                return self._hand_off(job, 0)
+                try:
+                    credits = self.api.credits()
+                    balance = int(credits.get("credits_remaining") or 0)
+                    job["plan"] = str(credits.get("plan") or job.get("plan") or "").lower()
+                except (ApiError, TypeError, ValueError):
+                    balance = 0
+                return self._hand_off(job, balance)
             if retry or error.status == 409:
                 return f"Leadpoet is still sorting out that request ({error.message}). /customers go checks again, with no double charge."
             job.pop("find_body", None)
@@ -1023,6 +1029,8 @@ class Customers:
                 notes = self._refresh(job)
                 job = self.job() or job
             except ApiError as error:
+                if error.status in (401, 403):
+                    return BAD_KEY
                 return f"Leadpoet didn't respond as expected. {error.message}"
         return "\n\n".join(part for part in (*notes, self._stage_text(job)) if part)
 
@@ -1048,7 +1056,7 @@ class Customers:
             if job.get("balance") or job.get("plan") not in (None, "", "free"):  # A paid plan tops up. Only a free one has credits to claim.
                 return (_balance_note(job.get("balance") or 0, job.get("quoted_credits") or 0) + "\n"
                         f"Add credits here: {LEAD_ENGINE_URL}\nThen: /customers go {self._brief_code(job)}")
-            return (f"Free accounts get {FREE_CREDITS} credits, enough for these {COMPANIES} companies. "
+            return (f"New free accounts get {FREE_CREDITS} credits, enough for these {COMPANIES} companies. "
                     "Leadpoet takes that request in its app, to keep bots out.\n\n"
                     f"1. Open {LEAD_ENGINE_URL}\n"
                     f"2. Under \"Describe your ideal customer\", paste:\n\n{briefs.description(job['brief'])}\n\n"
@@ -1133,12 +1141,15 @@ class Customers:
         self.save(job)
         if not balance and job["plan"] == "free" and cost <= FREE_CREDITS:  # Nothing to top up: the free credits come with the request.
             return (f"Next, find {COMPANIES} companies with verified contacts.\n"
-                    f"Free accounts get {FREE_CREDITS} credits, enough for all {COMPANIES}. Leadpoet takes that request in its app, "
+                    f"New free accounts get {FREE_CREDITS} credits, enough for all {COMPANIES}. Leadpoet takes that request in its app, "
                     "so I'll hand you the text to paste.\n\n"
                     f"To confirm, reply:\n/customers go {code}")
-        short = "" if affordable_companies(balance, price) else "\n" + _balance_note(balance, cost)
+        if not affordable_companies(balance, price):
+            return (f"Next, find {COMPANIES} companies with verified contacts.\n"
+                    f"Cost: {cost:,} credits. You have {balance:,}.\n{_balance_note(balance, cost)}\n\n"
+                    f"Add credits here: {LEAD_ENGINE_URL}\nThen: /customers go {code}")
         return (f"Next, find {COMPANIES} companies with verified contacts.\n"
-                f"Cost: {cost:,} credits. You have {balance:,}.{short}\n\n"
+                f"Cost: {cost:,} credits. You have {balance:,}.\n\n"
                 f"To confirm, reply:\n/customers go {code}")
 
     def _open(self, job: dict | None, site: str) -> str:

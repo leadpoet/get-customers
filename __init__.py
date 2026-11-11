@@ -279,6 +279,12 @@ def _watch_command(args: Any) -> int:
     print("Script ready. Finish with:\n")
     print(f'hermes cron create "every {args.every}" --no-agent --script {SCRIPT_NAME} '
           f'--deliver {args.deliver} --name leadpoet')
+    try:
+        keyed = bool(get_key())
+    except Exception:  # Outside a Hermes runtime there is no way to tell, so say nothing.
+        keyed = True
+    if not keyed:
+        print(f"\nPings start once your Leadpoet API key is in: {ADD_KEY}")
     return 0
 
 
