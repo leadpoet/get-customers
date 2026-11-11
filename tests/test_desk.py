@@ -575,7 +575,7 @@ class PluginCase(unittest.TestCase):
         self.assertIn("API key", self.entry_trouble(ApiError("x", status=401)))
 
     def entry_trouble(self, error):
-        return load_entry()._trouble(error)
+        return load_entry().trouble(error)
 
     def test_registers_no_send_tool(self):
         entry = load_entry()

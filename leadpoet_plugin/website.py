@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any
@@ -297,9 +298,46 @@ def _read_within(response: Any, deadline: float) -> bytes:
     return bytes(data)
 
 
+def _unpacked(data: bytes, encoding: str) -> bytes:
+    """Some servers compress a page whether or not they were asked to."""
+    encoding = encoding.strip().lower()
+    if encoding in ("", "identity"):
+        return data
+    if encoding not in ("gzip", "x-gzip", "deflate"):
+        raise SiteError("That site sent its page in a form I can't read.")
+    for bits in (47, -15):  # gzip or zlib, then bare deflate. A page cut off at the size limit still unpacks.
+        try:
+            return zlib.decompressobj(bits).decompress(data, MAX_BYTES)
+        except zlib.error:
+            continue
+    raise SiteError("That site sent its page in a form I can't read.")
+
+
+def _text(data: bytes, content_type: str) -> str:
+    named = re.search(r"charset=\s*[\"']?([\w.:-]+)", content_type, re.I)
+    try:
+        return data.decode(named.group(1) if named else "utf-8", errors="replace")
+    except LookupError:
+        return data.decode("utf-8", errors="replace")
+
+
+def _plain_port(url: str) -> str:
+    """https://site.com:443/ is https://site.com/. A redirect that spells the port out must not put it in a source."""
+    parts = urllib.parse.urlsplit(url)
+    try:
+        default = parts.port == {"http": 80, "https": 443}.get(parts.scheme)
+    except ValueError:
+        return url
+    if not default or not parts.hostname:
+        return url
+    host = f"[{parts.hostname}]" if ":" in parts.hostname else parts.hostname
+    user = parts.netloc.rpartition("@")[0]
+    return urllib.parse.urlunsplit(parts._replace(netloc=f"{user}@{host}" if user else host))
+
+
 def fetch(url: str, *, opener: Any = _OPENER, public: Any = is_public_host) -> tuple[str, str]:
     """Return (final_url, html). Every redirect hop is checked before it is followed."""
-    current = url
+    current = _plain_port(url)
     deadline = time.monotonic() + FETCH_SECONDS
     for _ in range(MAX_REDIRECTS + 1):
         try:
@@ -322,10 +360,11 @@ def fetch(url: str, *, opener: Any = _OPENER, public: Any = is_public_host) -> t
                 kind = response.headers.get("Content-Type", "")
                 if "html" not in kind.lower():
                     raise SiteError("That address isn't a web page.")
-                return current, _read_within(response, deadline).decode("utf-8", errors="replace")
+                data = _unpacked(_read_within(response, deadline), response.headers.get("Content-Encoding") or "")
+                return current, _text(data, kind)
         except urllib.error.HTTPError as error:
             if error.code in (301, 302, 303, 307, 308) and error.headers.get("Location"):
-                current = urllib.parse.urljoin(current, error.headers["Location"])
+                current = _plain_port(urllib.parse.urljoin(current, error.headers["Location"]))
                 continue
             if error.code in (401, 403):
                 raise SiteError("That site doesn't let automated readers in, so I can't read it.") from None

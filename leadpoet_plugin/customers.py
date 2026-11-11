@@ -91,6 +91,17 @@ class _Blocked(Exception):
     """Launching can't continue until the user fixes something. Approvals are kept."""
 
 
+def trouble(error: ApiError) -> str:
+    """Leadpoet's errors, in words that say what to do next."""
+    if error.status in (401, 403):
+        return BAD_KEY
+    if error.status == 429:
+        return "Leadpoet asked me to slow down. Nothing was lost. Try again in a minute."
+    if error.ambiguous or error.status >= 500:
+        return "Leadpoet didn't answer in time. Nothing was lost. Try again in a minute."
+    return f"Leadpoet didn't respond as expected. {error.message}"
+
+
 def affordable_companies(credits: int, price: int) -> int:
     """Leadpoet won't strand a small balance: a request leaves nothing usable, or at least 100."""
     left = credits - COMPANIES * price
@@ -413,7 +424,8 @@ class Customers:
         if not code:
             return f"Add the code to confirm: /customers go {self._brief_code(job)}"
         if code != self._brief_code(job):
-            return "That code doesn't match this profile. Use the code shown here:\n\n" + self._next(job)
+            again = self._offer(job) if job["stage"] == "scanned" else self._next(job)
+            return f"That code isn't the one for {job['brief']['product_name']}, so nothing was spent.\n\n" + again
         if self.api is None:
             job["stage"] = "needs_key"
             self.save(job)
@@ -482,6 +494,7 @@ class Customers:
                 # Leadpoet remembers this refusal against the key, so a top-up needs a new one. Nothing was charged.
                 job.pop("find_body", None)
                 job["find_attempt"] = job.get("find_attempt", 0) + 1
+                job["refused"] = True
                 try:
                     credits = self.api.credits()
                     balance = int(credits.get("credits_remaining") or 0)
@@ -493,8 +506,11 @@ class Customers:
                 return f"Leadpoet is still sorting out that request ({error.message}). /customers go checks again, with no double charge."
             job.pop("find_body", None)
             self.save(job)
-            return f"Leadpoet didn't accept that: {error.message}"
+            if error.status == 429:
+                return f"Leadpoet asked me to slow down, so nothing was spent. Try again in a minute: /customers go {self._brief_code(job)}"
+            return f"Leadpoet didn't accept that, so nothing was spent: {error.message}"
         job.pop("find_body", None)
+        job.pop("refused", None)
         job.update(stage="finding", query_id=data.get("query_id"), query_ids=data.get("query_ids") or [], icp_id=data.get("icp_id"),
                    companies=body["max_leads"], spent=body["credit_budget"], credits_left=data.get("credits_remaining"))
         self.save(job)
@@ -512,6 +528,21 @@ class Customers:
         job.update(stage="needs_credits", balance=balance)
         self.save(job)
         return self._next(job)
+
+    def _read_balance(self, job: dict) -> None:
+        """A top-up made since the last look has to show, or the old shortfall reads as a refusal."""
+        try:
+            credits = self.api.credits()
+            balance = int(credits.get("credits_remaining") or 0)
+            if not job.get("quoted_credits"):  # The price couldn't be read when the cost was first shown.
+                price = int((self.api.contact_settings().get("pricing") or {}).get("credits_per_company") or 0)
+                job["quoted_credits"] = COMPANIES * max(price, 0)
+        except (ApiError, TypeError, ValueError):
+            return
+        if balance != (job.get("balance") or 0):
+            job.pop("refused", None)
+        job.update(balance=balance, plan=str(credits.get("plan") or job.get("plan") or "").lower())
+        self.save(job)
 
     def _adopt(self, job: dict) -> bool:
         """After the first request is made in the app, carry on with it, but only if it's this search."""
@@ -994,8 +1025,11 @@ class Customers:
                 return ""
         before, told, empty = job["stage"], job.get("blocked"), job.get("delivered_empty")
         notes = self._refresh(job)
+        picked_up = before == "needs_credits" and job["stage"] == "finding"  # They pasted it in the app and are wondering if it took.
         if (job["stage"] != before and job["stage"] in ("ready", "failed", "live")) or (job.get("delivered_empty") and not empty):
             notes.insert(0, self._parked_news(job) if parked else self._next(job))
+        elif picked_up:
+            notes.insert(0, "I see your search in Leadpoet.\n\n" + self._stage_text(job))
         elif job.get("blocked") and job["blocked"] != told and job["blocked"] not in (_SLOW_DOWN, _NO_ANSWER):
             notes.insert(0, job["blocked"])
         if parked and notes:
@@ -1012,6 +1046,8 @@ class Customers:
     def _refresh(self, job: dict) -> list[str]:
         if job["stage"] == "needs_credits":
             self._adopt(job)
+        if job["stage"] == "needs_credits" and not job.get("other_request"):
+            self._read_balance(job)
         if job["stage"] == "finding":
             self._refresh_find(job)
         if job["stage"] in ("reviewing", "launching") and any(row["state"] == "approved" for row in job["people"]):
@@ -1035,9 +1071,7 @@ class Customers:
                 notes = self._refresh(job)
                 job = self.job() or job
             except ApiError as error:
-                if error.status in (401, 403):
-                    return BAD_KEY
-                return f"Leadpoet didn't respond as expected. {error.message}"
+                return trouble(error)
         return "\n\n".join(part for part in (*notes, self._stage_text(job)) if part)
 
     def _stage_text(self, job: dict) -> str:
@@ -1059,8 +1093,17 @@ class Customers:
             if job.get("other_request"):
                 return ("I see a new search in Leadpoet, but its text isn't the one I gave you, so I didn't assume it's this one.\n"
                         f"If it is: /customers use {code_for(job['id'], job['other_request']['id'])}")
-            if job.get("balance") or job.get("plan") not in (None, "", "free"):  # A paid plan tops up. Only a free one has credits to claim.
-                return (_balance_note(job.get("balance") or 0, job.get("quoted_credits") or 0) + "\n"
+            balance, cost = job.get("balance") or 0, job.get("quoted_credits") or 0
+            paid = job.get("plan") not in (None, "", "free")  # A paid plan tops up. Only a free one has credits to claim.
+            covered = bool(cost) and bool(affordable_companies(balance, cost // COMPANIES))
+            if covered and not job.get("refused"):
+                return (f"Your credits are in.\nCost: {cost:,} credits. You have {balance:,}.\n\n"
+                        f"To confirm, reply:\n/customers go {self._brief_code(job)}")
+            if covered and paid:
+                return (f"Leadpoet turned this search down for credits, though your balance shows {balance:,}. Nothing was spent.\n"
+                        f"Check your credits here: {LEAD_ENGINE_URL}\nThen: /customers go {self._brief_code(job)}")
+            if not covered and (balance or paid):
+                return (_balance_note(balance, cost) + "\n"
                         f"Add credits here: {LEAD_ENGINE_URL}\nThen: /customers go {self._brief_code(job)}")
             return ("Leadpoet takes this search in its app, to keep bots out.\n\n"
                     f"1. Open {LEAD_ENGINE_URL}\n"
@@ -1193,14 +1236,17 @@ class Customers:
                   "writing": "writing", "reviewing": "waiting for you", "launching": "launching", "live": "live",
                   "failed": "stopped", "done": "done"}
         lines = [f"{_site(other)}: {labels.get(other['stage'], other['stage'])}" for other in others]
+        if job and not job["people"] and not past:  # The whole card again would bury the list they asked for.
+            here = f"{_site(job)}: {labels.get(job['stage'], job['stage'])}. This is the one that's open: /customers"
         return (f"{here}\n\nOther searches:\n" + "\n".join(lines) + "\nOpen one: /customers open <site>")
 
     def _people(self, job: dict | None) -> str:
         if not job or not job["people"]:
             return self._next(job)
-        labels = {"research": "researching", "new": "waiting for you", "approved": "approved", "skipped": "skipped", "launched": "running", "held": "held back"}
+        labels = {"research": "researching" if job["stage"] == "writing" else "email not written yet", "new": "waiting for you",
+                  "approved": "approved", "skipped": "skipped", "launched": "running", "held": "held back"}
         return "\n".join(f"{row['name']}, {row['company']}: {labels.get(row['state'], row['state'])}"
-                         f"{'' if row['lines'] else ' (no personal line)'}" for row in job["people"])
+                         f"{'' if row['lines'] or row['state'] == 'research' else ' (no personal line)'}" for row in job["people"])
 
 
 def _plain(code: Any) -> str:

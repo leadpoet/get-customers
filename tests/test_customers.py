@@ -150,8 +150,78 @@ class FindCase(Case):
         self.assertNotIn("signal", self.customers.handle("", ""))
 
     def test_a_wrong_code_spends_nothing(self):
-        self.assertIn("doesn't match", self.customers.handle("go", "zzzz"))
+        text = self.customers.handle("go", "zzzz")
+        self.assertIn("isn't the one for Sunnyday", text)
+        self.assertNotIn("Who buys", text)  # The card is already on screen. Only the way to confirm is repeated.
+        self.assertIn("/customers go " + self.code("go"), text)
         self.assertEqual(self.api.requests, [])
+
+    def paid(self, balance):
+        self.api.credits = lambda: {"credits_remaining": balance[0], "plan": "pro"}
+        self.text = self.customers.handle("", "")
+        return self.text.split("/customers go ")[1].split()[0]
+
+    def test_a_refusal_with_credits_showing_never_asks_for_a_negative_top_up(self):
+        code = self.paid([8116])
+        self.api.fail_request = ApiError("Not enough credits", 402, code="insufficient_credits")
+        for text in (self.customers.handle("go", code), self.customers.handle("", "")):
+            self.assertIn("turned this search down", text)
+            self.assertIn("8,116", text)
+            self.assertNotIn("Add -", text)
+            self.assertIn("/customers go ", text)
+        self.api.fail_request = None
+        self.customers.handle("go", self.customers.handle("", "").split("/customers go ")[1].split()[0])
+        self.assertEqual(self.customers.job()["stage"], "finding")
+
+    def test_a_top_up_shows_at_the_next_look(self):
+        balance = [40]
+        code = self.paid(balance)
+        self.assertIn("balance of 40", self.customers.handle("go", code))
+        balance[0] = 500
+        text = self.customers.handle("", "")
+        self.assertIn("Your credits are in.", text)
+        self.assertIn("You have 500", text)
+        self.assertNotIn("balance of 40", text)
+        self.customers.handle("go", text.split("/customers go ")[1].split()[0])
+        self.assertEqual(len(self.api.requests), 1)
+
+    def test_a_rate_limit_at_the_request_gives_the_way_back(self):
+        code = self.code("go")
+        self.api.fail_request = ApiError("Too many requests", 429)
+        text = self.customers.handle("go", code)
+        self.assertIn("nothing was spent", text)
+        self.assertIn(f"/customers go {code}", text)
+        self.assertEqual(self.customers.job()["stage"], "scanned")
+
+    def test_leadpoet_down_while_waiting_says_to_try_again(self):
+        self.customers.handle("go", self.code("go"))
+        def down(_):
+            raise ApiError("Leadpoet returned HTTP 502.", status=502, ambiguous=True)
+        self.api.get_request = down
+        text = self.customers.handle("", "")
+        self.assertIn("Nothing was lost. Try again in a minute.", text)
+        self.assertNotIn("502", text)
+        self.assertEqual(self.customers.job()["stage"], "finding")
+
+    def test_picking_up_the_request_from_the_app_says_so(self):
+        self.api.credits_left = 0
+        self.customers.handle("go", self.code("go"))
+        self.assertEqual(self.customers.advance(), "")  # Nothing in the app yet, so nothing to say.
+        self.api.app_requests = [{"id": "app-1", "icp_id": "i2", "created_at": "2099-01-01T00:00:00Z",
+                                  "request_description": description(self.customers.job()["brief"])}]
+        ping = self.customers.advance()
+        self.assertIn("I see your search in Leadpoet.", ping)
+        self.assertIn("1 to 2 days", ping)
+        self.assertEqual(self.customers.advance(), "")  # Said once.
+
+    def test_nobody_is_researching_before_the_emails_are_asked_for(self):
+        self.customers.handle("go", self.code("go"))
+        self.api.state = "completed"
+        self.customers.handle("", "")
+        listing = self.customers.handle("list", "")
+        self.assertIn("Marcus Oyelaran, Pinecrest Freight: email not written yet", listing)
+        self.assertNotIn("researching", listing)
+        self.assertNotIn("no personal line", listing)
 
     def test_spend_uses_a_stable_key_so_a_retry_cannot_double_charge(self):
         code = self.code("go")
@@ -915,6 +985,48 @@ class ProofCase(unittest.TestCase):
         fetch(address, opener=Opener(), public=lambda _: True)
         self.assertEqual(seen, ["https://a.example/about%20us"])
 
+    def reader(self, body, headers, hops=()):
+        import io
+        import urllib.error
+        from leadpoet_plugin.website import fetch
+        seen, left = [], list(hops)
+        class Response(io.BytesIO):
+            pass
+        Response.headers = headers
+        class Opener:
+            def open(self, request, timeout):
+                seen.append(request.full_url)
+                if left:
+                    raise urllib.error.HTTPError(request.full_url, 301, "Moved", {"Location": left.pop(0)}, None)
+                return Response(body)
+        return fetch("https://a.example/", opener=Opener(), public=lambda _: True), seen
+
+    def test_a_page_sent_compressed_is_read(self):  # wandb.ai sends gzip to a reader that never asked for it.
+        import gzip
+        import zlib
+        page = "<p>Experiment tracking for machine learning teams.</p>".encode()
+        for encoding, packed in (("gzip", gzip.compress(page)), ("deflate", zlib.compress(page)), ("deflate", zlib.compress(page)[2:-4])):
+            (_, html), _ = self.reader(packed, {"Content-Type": "text/html", "Content-Encoding": encoding})
+            self.assertIn("Experiment tracking", html)
+
+    def test_a_page_packed_in_a_way_it_cannot_open_is_a_plain_error(self):
+        from leadpoet_plugin.website import SiteError
+        with self.assertRaises(SiteError):
+            self.reader(b"\x1b\x03\x00", {"Content-Type": "text/html", "Content-Encoding": "br"})
+
+    def test_a_page_in_another_character_set_is_read(self):
+        (_, html), _ = self.reader("<p>Über 500 Kunden</p>".encode("iso-8859-1"), {"Content-Type": "text/html; charset=ISO-8859-1"})
+        self.assertIn("Über 500 Kunden", html)
+        (_, html), _ = self.reader("<p>Über</p>".encode(), {"Content-Type": "text/html; charset=no-such-set"})
+        self.assertIn("Über", html)
+
+    def test_a_redirect_that_spells_out_the_port_keeps_a_clean_source(self):  # factorialhr.es sends you to https://factorial.es:443/
+        (final, _), seen = self.reader(b"<p>hello</p>", {"Content-Type": "text/html"}, hops=["https://b.example:443/hr"])
+        self.assertEqual(final, "https://b.example/hr")
+        self.assertEqual(seen[-1], "https://b.example/hr")
+        (final, _), _ = self.reader(b"<p>hello</p>", {"Content-Type": "text/html"}, hops=["https://b.example:8443/hr"])
+        self.assertEqual(final, "https://b.example:8443/hr")
+
     def test_a_broken_address_is_a_plain_error(self):
         from leadpoet_plugin.website import SiteError, normalize_site
         with self.assertRaises(SiteError):
@@ -1323,6 +1435,8 @@ class ManySearchesCase(Case):
         listing = self.customers.handle("list", "")
         self.assertIn("Other searches:", listing)
         self.assertIn(": finding contacts", listing)
+        self.assertTrue(listing.startswith("other.example: ready to confirm. This is the one that's open: /customers"), listing)
+        self.assertNotIn("Who buys", listing)  # A list is one line a search, not the whole card again.
 
     def test_news_from_a_background_search_points_to_it(self):
         first = self.customers.job()

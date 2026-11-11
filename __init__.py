@@ -13,7 +13,7 @@ if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
 from leadpoet_plugin.api import ApiError, LeadpoetApi  # noqa: E402
-from leadpoet_plugin.customers import ADD_KEY, BAD_KEY, HELP as CUSTOMERS_HELP, KEY_STEPS, Customers  # noqa: E402
+from leadpoet_plugin.customers import ADD_KEY, HELP as CUSTOMERS_HELP, KEY_STEPS, Customers, trouble  # noqa: E402
 from leadpoet_plugin.customers_demo import SELLER, DemoCustomersApi, DemoLlm, demo_fetch  # noqa: E402
 from leadpoet_plugin.demo import DemoApi  # noqa: E402
 from leadpoet_plugin.desk import Desk  # noqa: E402
@@ -123,7 +123,7 @@ class Plugin:
             desk.store.mark_alerted([item["task_id"] for item in desk.store.unalerted()])
             return desk.show() + self._real_waiting()
         except ApiError as error:
-            return _trouble(error)
+            return trouble(error)
         except Exception:
             logger.exception("leadpoet command failed")
             return "Something went wrong and nothing was sent."
@@ -185,7 +185,7 @@ class Plugin:
                 return "You're in the demo. Leave it with /customers demo off, then send your site."
             return self.customers().handle(action if action in _CUSTOMER_ACTIONS or not action else parts[0], argument)
         except ApiError as error:
-            return _trouble(error)
+            return trouble(error)
         except Exception:
             logger.exception("leadpoet customers command failed")
             return "Something went wrong. Nothing was sent, and your progress is saved."
@@ -229,17 +229,6 @@ class Plugin:
         except Exception:
             logger.exception("leadpoet tool failed")
             return json.dumps({"error": "The draft couldn't be saved."})
-
-
-def _trouble(error: ApiError) -> str:
-    """Leadpoet's errors, in words that say what to do next."""
-    if error.status in (401, 403):
-        return BAD_KEY
-    if error.status == 429:
-        return "Leadpoet asked me to slow down. Nothing was lost. Try again in a minute."
-    if error.ambiguous or error.status >= 500:
-        return "Leadpoet didn't answer in time. Nothing was lost. Try again in a minute."
-    return f"Leadpoet didn't respond as expected. {error.message}"
 
 
 _CUSTOMER_ACTIONS = {"go", "open", "write", "approve", "use", "all", "skip", "list", "check", "status", "voice", "about", "reset"}
