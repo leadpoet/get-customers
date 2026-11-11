@@ -186,7 +186,7 @@ class FindCase(Case):
     def test_no_key_shows_the_free_offer(self):
         customers = Customers(None, Store(Path(self.tmp.name) / "b.db"), DemoLlm(), demo_fetch)
         text = customers.start(SELLER)
-        self.assertIn("first 10 companies are free", text)
+        self.assertIn("It takes a free Leadpoet account.", text)
         code = text.split("/customers go ")[1].split()[0]
         steps = customers.handle("go", code)
         # Where to sign up, where the key is made, the one command that adds it, and the way back.
@@ -209,7 +209,7 @@ class FindCase(Case):
         self.api.credits_left = 0
         self.api.credits = lambda: {"credits_remaining": 0, "plan": "free"}
         text = self.customers.handle("", "")
-        self.assertIn("New free accounts get 100 credits", text)
+        self.assertIn("Leadpoet takes this one in its app", text)
         self.assertNotIn("doesn't cover", text)
         self.assertIn("Describe your ideal customer", self.customers.handle("go", self.code("go")))
 

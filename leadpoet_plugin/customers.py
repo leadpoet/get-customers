@@ -1045,7 +1045,7 @@ class Customers:
                 problem = ""
             return problem or "Your key is in.\n\n" + self._offer(job)
         if stage == "needs_key":
-            return (f"Finding real contacts takes a free Leadpoet account, and your first {COMPANIES} companies are free.\n\n"
+            return ("Finding real contacts takes a free Leadpoet account.\n\n"
                     f"1. Sign up: {SIGNUP_URL}\n2. {KEY_STEPS}\n"
                     f"3. Add it where Hermes runs: {ADD_KEY}\n\n"
                     f"Then: /customers go {self._brief_code(job)}")
@@ -1056,8 +1056,7 @@ class Customers:
             if job.get("balance") or job.get("plan") not in (None, "", "free"):  # A paid plan tops up. Only a free one has credits to claim.
                 return (_balance_note(job.get("balance") or 0, job.get("quoted_credits") or 0) + "\n"
                         f"Add credits here: {LEAD_ENGINE_URL}\nThen: /customers go {self._brief_code(job)}")
-            return (f"New free accounts get {FREE_CREDITS} credits, enough for these {COMPANIES} companies. "
-                    "Leadpoet takes that request in its app, to keep bots out.\n\n"
+            return ("Leadpoet takes this search in its app, to keep bots out.\n\n"
                     f"1. Open {LEAD_ENGINE_URL}\n"
                     f"2. Under \"Describe your ideal customer\", paste:\n\n{briefs.description(job['brief'])}\n\n"
                     f"3. Under \"Describe your product or service\", paste:\n\n{briefs.product_text(job['brief'])}\n\n"
@@ -1124,8 +1123,8 @@ class Customers:
         code = self._brief_code(job)
         if self.api is None:
             return (f"Next, find {COMPANIES} companies with verified contacts.\n"
-                    f"It takes a free Leadpoet account, and your first {COMPANIES} companies are free.\n\n"
-                    f"To confirm, reply:\n/customers go {code}")
+                    "It takes a free Leadpoet account.\n\n"
+                    f"Try it now:\n/customers go {code}")
         if getattr(self.api, "demo", False):
             return f"See how it finds prospects, using 3 made-up companies: /customers go {code}"
         try:
@@ -1141,7 +1140,7 @@ class Customers:
         self.save(job)
         if not balance and job["plan"] == "free" and cost <= FREE_CREDITS:  # Nothing to top up: the free credits come with the request.
             return (f"Next, find {COMPANIES} companies with verified contacts.\n"
-                    f"New free accounts get {FREE_CREDITS} credits, enough for all {COMPANIES}. Leadpoet takes that request in its app, "
+                    "Leadpoet takes this one in its app, "
                     "so I'll hand you the text to paste.\n\n"
                     f"To confirm, reply:\n/customers go {code}")
         if not affordable_companies(balance, price):

@@ -24,11 +24,11 @@ It runs the whole job with fictional companies. Nothing can reach anyone, and it
 
 Want to see it read your real site? `/customers demo yoursite.com`. The brief is real. The prospects are made up.
 
-## Free to start
+## Try it for real
 
 10 companies with verified contacts, email or LinkedIn outreach from one sender, and a CRM pipeline in Leadpoet that tracks every contact and reply. No card needed.
 
-New free accounts get 100 credits, enough for those 10 companies. Leadpoet takes that first request in its app, so Hermes hands you the text for each box, then picks the search up and pings you when your contacts land.
+A new free account's 100 credits cover those 10 companies. Leadpoet takes that request in its app, so Hermes hands you the text for each box, then picks the search up and pings you when your contacts land.
 
 ## Install
 
@@ -48,7 +48,7 @@ hermes plugins enable leadpoet
 
 Restart the gateway if it's running, so your phone sees `/customers`: `hermes gateway restart`.
 
-For real contacts, add a Leadpoet API key. The account is free, and so are your first 10 companies:
+For real contacts, add a Leadpoet API key. The account is free:
 
 1. Sign up at [leadpoet.com/auth](https://leadpoet.com/auth).
 2. Open [Integrations](https://leadpoet.com/dashboard/account?section=integrations), then Developer, API keys, Create API key. Name it, choose Select all, and copy the key.
