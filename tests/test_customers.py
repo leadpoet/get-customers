@@ -1342,6 +1342,16 @@ class ManySearchesCase(Case):
         self.customers.handle(self.OTHER, "")
         self.assertIn("Your other searches: ", self.customers.handle("open", "nope.example"))
 
+    def test_open_takes_the_short_name_of_a_site(self):
+        first = self.customers.job()
+        short = first["brief"]["domain"].split(".")[0]
+        self.assertIn("You're on it already", self.customers.handle("open", short))
+        self.customers.handle(self.OTHER, "")
+        self.assertEqual(self.customers.job()["brief"]["domain"], "other.example")
+        self.customers.handle("open", short)
+        self.assertEqual(self.customers.job()["id"], first["id"])
+        self.assertIn("You're on it already", self.customers.handle("open", short.upper()))
+
     def test_reset_keeps_a_paid_search_unless_confirmed(self):
         self.assertIn("keep it unless you're sure", self.customers.handle("reset", ""))
         self.assertEqual(self.customers.job()["stage"], "finding")
@@ -1556,6 +1566,20 @@ class BreadthFindingsCase(unittest.TestCase):
                  {"text": "A high-intent account uses 10 credits", "quote": priced, "url": "https://a/", "said_by": "seller"},
                  {"text": "Linear plans from $49/mo", "quote": "Plans from $49/mo.", "url": "https://a/", "said_by": "seller"}]
         self.assertEqual([fact["quote"] for fact in validate_brief(self.raw(facts=facts), scan)["facts"]], [self.QUOTE])
+
+    def test_a_fee_per_sale_is_never_proof(self):
+        fee = "30% per transaction when new customers find and buy through the discover marketplace."
+        grew = "Teams grew their pipeline by 30% per quarter after switching."
+        scan = Scan("linear.app", [Page("https://a/", "Linear - Plan", f"{self.QUOTE} {fee} {grew}")])
+        facts = [{"text": fee, "quote": fee, "url": "https://a/", "said_by": "seller"},
+                 {"text": grew, "quote": grew, "url": "https://a/", "said_by": "seller"}]
+        self.assertEqual([fact["quote"] for fact in validate_brief(self.raw(facts=facts), scan)["facts"]], [grew])
+
+    def test_the_product_text_says_the_name_once(self):
+        brief = {"product_name": "n8n", "summary": "n8n is a platform for building AI agents.", "facts": []}
+        self.assertEqual(product_text(brief), "n8n is a platform for building AI agents.")
+        brief = {"product_name": "LangChain", "summary": "LangSmith is an agent engineering platform.", "facts": []}
+        self.assertEqual(product_text(brief), "LangChain: LangSmith is an agent engineering platform.")
 
     def test_a_product_named_after_prices_or_a_numeral_keeps_its_facts(self):
         kept = ["Corporate credit cards for startups that close the books faster.",

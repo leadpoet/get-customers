@@ -76,6 +76,15 @@ class MarkCase(unittest.TestCase):
         self.assertEqual(mark("Proof from acme.com:8080/docs:"), "**Proof from acme.com:8080/docs:**")
         self.assertEqual(mark("Proof from your own description:"), "**Proof from your own description:**")
 
+    def test_a_colon_in_a_proof_line_is_not_a_label(self):
+        card = ("Buying signals Leadpoet looks for:\n• Job postings: Posted a Staff Engineer role.\n\n"
+                "Proof from pinecone.io:\n• Nexus runs BYOC: curation and querying happen in your own cloud.\n• Fast retrieval.\n\n"
+                "• Pinecrest Freight: Posted a night dispatcher role.")
+        shown = mark(card).split("\n")
+        self.assertEqual(shown[1], "• **Job postings:** Posted a Staff Engineer role.")
+        self.assertEqual(shown[4], "• Nexus runs BYOC: curation and querying happen in your own cloud.")
+        self.assertEqual(shown[7], "• **Pinecrest Freight:** Posted a night dispatcher role.")
+
     def test_a_name_with_its_own_marks_is_not_wrapped_in_more(self):
         self.assertEqual(mark("• Acme *Labs*: Raised a round."), "• Acme *Labs*: Raised a round.")
         self.assertEqual(mark("1 of 2 · Sam `R` · email · new · 1 h ago"), "1 of 2 · Sam `R` · email · new · 1 h ago")

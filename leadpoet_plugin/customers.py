@@ -1159,10 +1159,15 @@ class Customers:
 
     def _open(self, job: dict | None, site: str) -> str:
         wanted = re.sub(r"^(https?://)?(www\.)?", "", site.strip().lower()).split("/")[0]
-        if job and wanted and _site(job).lower() == wanted:
-            return "You're on it already.\n\n" + self._next(job)
+        def named(other: dict) -> bool:  # close.com can be asked for as close.com or as close.
+            return bool(wanted) and wanted in (_site(other).lower(), _site(other).lower().split(".")[0])
+
         others = [(key, self._other(key).job()) for key in self._parked()]
-        match = next(((key, other) for key, other in others if other and wanted and _site(other).lower() == wanted), None)
+        matches = [(key, other) for key, other in others if other and named(other)]
+        exact = [pair for pair in matches if _site(pair[1]).lower() == wanted]
+        if job and named(job) and not exact:
+            return "You're on it already.\n\n" + self._next(job)
+        match = exact[0] if exact else matches[0] if len(matches) == 1 else None  # Two that fit a short name: ask which.
         if match is None:
             names = ", ".join(_site(other) for _, other in others if other)
             return f"Your other searches: {names}\nOpen one: /customers open <site>" if names else "You have no other searches. Start one: /customers yoursite.com"

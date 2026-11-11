@@ -76,7 +76,8 @@ _SYSTEM = (
     'company says it about itself or "customer" for a testimonial, review or case study quote. Code checks that every '
     'word of "text" is in "quote", in the same order, apart from the product name and small words like is, the and you, '
     'so never add a plan name, an audience, a benefit or any word the quote lacks. Pick quotes that make sense alone, on '
-    'what the product does, who uses it and real results, never prices or plan names), '
+    'what the product does, who uses it and real results, never prices or plan names, and never sample content shown '
+    'inside the product, such as an example post, message, task or document a user might write), '
     '"buyer_description" (one sentence that starts with the type of organization that buys, specific enough to say yes '
     'or no to one company, such as "US staffing agencies with 10 to 200 employees that place light industrial workers", '
     'never a generic function such as "customer-service businesses". When the site serves several kinds of customer, '
@@ -144,7 +145,8 @@ def _product_name(raw: dict, scan: Scan) -> str:
 
 
 # A price needs an amount: "credit cards for startups" or "pricing intelligence" is a product, not a price.
-_PRICE = re.compile(r"[$€£¥]\s?\d|\b\d[\d,.]*\s?(usd|eur|gbp|credits?)\b|\b\d[\d,.]*\s?(/|per|a|an)\s?(mo|month|year|yr|seat|user)\b|\bbilled (monthly|annually|yearly)\b", re.IGNORECASE)
+_PRICE = re.compile(r"[$€£¥]\s?\d|\b\d[\d,.]*\s?(usd|eur|gbp|credits?)\b|\b\d[\d,.]*\s?(/|per|a|an)\s?(mo|month|year|yr|seat|user)\b|\bbilled (monthly|annually|yearly)\b"
+                    r"|\b\d[\d,.]*\s?%\s?(per|on each|of each)\s(transaction|sale|payment|charge|order)\b", re.IGNORECASE)
 # "I" as a speaker, but not the Roman numeral in "Series I", "Type I" or "Phase I", nor "I/O".
 _SINGULAR_VOICE = re.compile(
     r"\b(?i:my|me|myself|mine)\b|\bI'(m|ve|d|ll)\b"
@@ -330,7 +332,8 @@ def description(brief: dict) -> str:
 
 def product_text(brief: dict) -> str:
     facts = [f"- {fact['text']}" for fact in brief["facts"]]  # Proven on the site. Links would only crowd the limit.
-    head = f"{brief['product_name']}: {brief['summary']}"
+    name, summary = brief["product_name"], brief["summary"]
+    head = summary if summary.lower().startswith(name.lower()) else f"{name}: {summary}"  # "n8n: n8n is" says it twice.
     return fit([head, "Confirmed on the website:" if facts else "", *facts], FIELD_MAX)
 
 

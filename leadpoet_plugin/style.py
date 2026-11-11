@@ -67,7 +67,9 @@ def mark(text: str, marks: tuple[str, str, str, str] = MARKDOWN) -> str:
     lines = text.split("\n")
     out: list[str] = []
     ends: re.Pattern | None = None
+    proof = False  # Under "Proof from", a bullet is a sentence from their site. A colon in it is theirs, not a label.
     for index, line in enumerate(lines):
+        proof = line.startswith("Proof from ") or (proof and bool(line))
         if ends and (ends.match(line) or _EMAIL.match(line)):
             ends = None
         if ends or line.startswith(">"):
@@ -78,7 +80,7 @@ def mark(text: str, marks: tuple[str, str, str, str] = MARKDOWN) -> str:
                  and lines[index + 3].startswith("Who buys:"))  # A brief opens on the product's name.
         head = _DESK_HEAD.match(line)
         label = _LABEL.match(line) or _LEAD.match(line)
-        bullet = _BULLET.match(line)
+        bullet = None if proof else _BULLET.match(line)
         if title or (_PERSON.match(line) and _ADDRESS.match(following)):
             line = bold(line)
         elif head:
