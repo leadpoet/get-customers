@@ -1111,6 +1111,42 @@ class EvidenceTests(unittest.TestCase):
         emails = write_sequence(llm, {**self.BRIEF, "problem": "p", "voice": "v"})
         self.assertEqual((emails[0]["subject"], replies), ("Question for {company}", []))
 
+    def test_a_number_word_in_the_sellers_name_needs_no_source(self):
+        """Robert Half lost every draft to "a number that no source has: half"."""
+        brief = {"product_name": "Robert Half", "problem": "Hiring skilled staff is slow.",
+                 "facts": [{"text": "t", "said_by": "seller", "quote": "Our specialized recruiters deliver top available talent."}]}
+        body = "Hi {first_name},\n[[PERSONAL]]\nRobert Half recruiters deliver top available talent [1].\nWorth a short call?\n{sender}"
+        mail = {"emails": [{"subject": "Top available talent", "body": body}] + [{"subject": "Top available talent", "body": body.replace("[[PERSONAL]]\n", "")}] * 2}
+        self.assertTrue(validate_sequence(mail, brief))
+        mail["emails"][1]["body"] = body.replace("[[PERSONAL]]\n", "If hiring takes half your week, that is slow.\n")
+        self.assertIsNone(validate_sequence(mail, brief))
+
+    def test_a_digit_in_the_sellers_name_needs_no_source(self):
+        """E2B's claims were refused for "a number" whenever the quote did not happen to hold a 2."""
+        brief = {"product_name": "E2B", "problem": "Agents need a place to run code.",
+                 "facts": [{"text": "t", "said_by": "seller", "quote": "Billed by the second, with a free tier to start."}]}
+        body = "Hi {first_name},\n[[PERSONAL]]\nE2B is billed by the second, with a free tier to start [1].\nWorth a short call?\n{sender}"
+        mail = {"emails": [{"subject": "Billed by the second", "body": body}] + [{"subject": "Free tier", "body": body.replace("[[PERSONAL]]\n", "")}] * 2}
+        self.assertTrue(validate_sequence(mail, brief))
+        mail["emails"][2]["body"] = body.replace("[[PERSONAL]]\n", "").replace("is billed", "has 2 plans billed")
+        self.assertIsNone(validate_sequence(mail, brief))
+
+    def test_a_prospect_named_like_its_address_keeps_its_line(self):
+        """Trigger.dev's funding and monday.com's new office were dropped as links, so the buying signal never opened the email."""
+        from leadpoet_plugin.writer import signal_opener
+        def opener(company, line, why):
+            llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": line})))
+            return [row["line"] for row in signal_opener(llm, {"company": company, "why": why})[0]]
+        self.assertEqual(opener("Trigger.dev", "Trigger.dev raised a $16M Series A in October.", "Raised a $16M Series A in October."),
+                         ["Trigger.dev raised a $16M Series A in October."])
+        self.assertTrue(opener("monday.com", "monday.com opened a new office in Denver in September.", "Opened a new office in Denver in September."))
+        self.assertFalse(opener("monday.com", "monday.com opened a new office, see evil.example.", "Opened a new office, see evil.example."))
+        scan = Scan("cal.com", [Page("https://cal.com/", "t", "Connects to Slack, Salesforce, and 100+ more. We run millions of workflows a month on Trigger.dev")])
+        def lines(company, line, quote):
+            return validate_lines({"lines": [{"line": line, "quote": quote, "url": "https://cal.com/"}]}, scan, {"company": company})[0]
+        self.assertTrue(lines("Cal.com", "Cal.com connects to Slack, Salesforce, and 100+ more.", "Connects to Slack, Salesforce, and 100+ more."))
+        self.assertFalse(lines("Trigger.dev", "Cal.com runs millions of workflows a month on Trigger.dev.", "We run millions of workflows a month on Trigger.dev"))
+
     def test_a_link_cannot_become_the_sign_off(self):
         scan = Scan("acme.com", [Page("https://a/", "t", "Accept payments online in minutes.")])
         raw = {"summary": "s", "roles": ["b"], "buyer_description": "c", "product_name": "see https://evil.example",

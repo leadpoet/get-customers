@@ -47,6 +47,14 @@ def stem(word: str) -> str:
     return word[:6]
 
 
+def _without_numbered_names(text: str, names: str) -> str:
+    """E2B and Mem0 are names. The 2 and the 0 in them are not numbers that need a source."""
+    for name in names.split():
+        if any(character.isdigit() for character in name):
+            text = re.sub(rf"(?<!\w){re.escape(name)}(?!\w)", " ", text, flags=re.IGNORECASE)
+    return text
+
+
 def unsupported(text: str, source: str, names: str = "", allowed: frozenset[str] = frozenset(), ordered: bool = True,
                 negation: bool = True) -> str:
     """What the source doesn't back up, or "" when all of it is backed up.
@@ -57,7 +65,7 @@ def unsupported(text: str, source: str, names: str = "", allowed: frozenset[str]
     """
     if has_lookalike(text):
         return "an unusual character"
-    if not numbers_in(text) <= numbers_in(source):
+    if not numbers_in(_without_numbered_names(text, names)) <= numbers_in(source):
         return "a number"
     if negation and bool(NEGATION.search(text)) != bool(NEGATION.search(source)):
         return "the word no or not"
