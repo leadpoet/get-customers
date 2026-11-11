@@ -21,7 +21,16 @@ from .writer import fits, render, research_person, write_sequence
 
 LEAD_ENGINE_URL = "https://leadpoet.com/dashboard/lead-engine"
 OUTREACH_URL = "https://leadpoet.com/dashboard/outreach"
+SIGNUP_URL = "https://leadpoet.com/auth"
+KEY_URL = "https://leadpoet.com/dashboard/account?section=integrations"
+# Hermes re-reads its key file on every message, so a key added this way works at once.
+ADD_KEY = "hermes config set LEADPOET_API_KEY <your key>"
+KEY_STEPS = (f"Create a key: {KEY_URL}\n"
+             "   Open Developer, then API keys, then Create API key. Name it, choose Select all, and copy the key.")
+BAD_KEY = (f"Leadpoet didn't accept that API key. It may have been revoked or copied short.\n\n1. {KEY_STEPS}\n"
+           f"2. Add it where Hermes runs: {ADD_KEY}")
 COMPANIES = 10  # Leadpoet's smallest paid search, and exactly what the free credits buy.
+FREE_CREDITS = 100
 MAX_SENDERS = 20  # Leadpoet's limit for one campaign.
 MAX_PAST_PEOPLE = 200
 PAST_PEOPLE_SECONDS = 30 * 86400  # Long past the last step of a three-email sequence.
@@ -167,12 +176,17 @@ def account_note(note: object, *requests: dict | None) -> str:
 
 
 def _arrivals(people: list[dict]) -> str:
-    """Who arrived and, when Leadpoet published one, why each company fits."""
-    noted = [person for person in people if person.get("why")]
-    head = f"{len(people)} verified contacts are in."
-    if not noted:
+    """Who arrived, one line a company, with Leadpoet's reason when it published one. Every company is listed."""
+    count = len(people)
+    head = f"{count} verified contact{'s are' if count != 1 else ' is'} in."
+    if not any(person.get("why") for person in people):
         return head
-    rows = [f"• {person['company']}: {person['why']}" for person in noted]
+    rows, seen = [], set()
+    for person in people:
+        row = f"• {person['company']}: {person.get('why') or 'Matches your profile.'}"
+        if row not in seen:
+            seen.add(row)
+            rows.append(row)
     return head + " Why each company:\n" + "\n".join(rows)
 
 
@@ -398,19 +412,23 @@ class Customers:
             job["stage"] = "needs_key"
             self.save(job)
             return self._next(job)
-        problem = self._key_problem() if not job.get("find_body") else ""
+        problem = self._key_problem(job) if not job.get("find_body") else ""
         return problem or self._spend(job)
 
-    def _key_problem(self) -> str:
+    def _key_problem(self, job: dict) -> str:
         """Check before spending, so a key that can't finish the job never starts it."""
+        then = f"\n\nThen: /customers go {self._brief_code(job)}"
         try:
             scopes = set(self.api.identity().get("scopes") or [])
         except ApiError as error:
             if error.status in (401, 403):
-                return "Leadpoet didn't accept that API key. Create a new one in Settings, Developer, and add it as LEADPOET_API_KEY."
+                return BAD_KEY + then
             raise
-        missing = [scope for scope in SCOPES if scope not in scopes]
-        return f"This API key is missing some permissions. Create a new one in Settings, Developer, with: {', '.join(SCOPE_NAMES[scope] for scope in missing)}" if missing else ""
+        missing = [SCOPE_NAMES[scope] for scope in SCOPES if scope not in scopes]
+        if not missing:
+            return ""
+        return (f"This API key can't do everything here. It's missing: {', '.join(missing)}.\n\n"
+                f"1. {KEY_STEPS}\n2. Add it where Hermes runs: {ADD_KEY}" + then)
 
     def _find_body(self, job: dict) -> dict | int | None:
         """The request to send, the balance if it's too small for one, or None with no price."""
@@ -468,6 +486,10 @@ class Customers:
         job.update(stage="finding", query_id=data.get("query_id"), query_ids=data.get("query_ids") or [], icp_id=data.get("icp_id"),
                    companies=body["max_leads"], spent=body["credit_budget"], credits_left=data.get("credits_remaining"))
         self.save(job)
+        if demo:  # The demo has no wait to sit through, so it goes straight to what the wait ends in.
+            self._refresh_find(job)
+            return ("For real, Leadpoet now takes 1 to 2 days to find and verify every contact, and Hermes pings you when they land. "
+                    "The demo skips the wait.\n\n" + self._next(self.job() or job))
         return self._next(job)
 
     def _find_key(self, job: dict) -> str:
@@ -499,7 +521,7 @@ class Customers:
 
     def _adopt_request(self, job: dict, request: dict) -> None:
         job.pop("other_request", None)
-        job.update(stage="finding", query_id=request["id"], icp_id=request.get("icp_id"))
+        job.update(stage="finding", query_id=request["id"], icp_id=request.get("icp_id"), from_app=True)
         self.save(job)
 
     def _use(self, job: dict | None, code: str) -> str:
@@ -633,7 +655,7 @@ class Customers:
     def _card(self, job: dict, person: dict) -> str:
         new = [row for row in job["people"] if row["state"] == "new"]
         lines = self._emails(person)
-        lines += ["Leadpoet adds your booking link, if you've set one, and your legal footer.",
+        lines += ["Leadpoet adds your booking link, if you've set one, and your legal footer.", "",
                   f"Approve these exact emails: /customers approve {self._person_code(job, person)}", "Leave them out: /customers skip"]
         if len(new) > 1:
             lines += [f"Read {'both' if len(new) == 2 else f'all {len(new)}'} and approve them together: /customers all"]
@@ -971,7 +993,7 @@ class Customers:
     def _parked_news(self, job: dict) -> str:
         """Commands in a background search's news must not act on the search that's open."""
         if job["stage"] == "ready":
-            return (_arrivals(job["people"]) + "\n"
+            return (_arrivals(job["people"]) + "\n\n"
                     f"Open it to write their emails: /customers open {_site(job)}")
         return self._stage_text(job)
 
@@ -1009,36 +1031,45 @@ class Customers:
         if stage == "scanned":
             return (briefs.card(job["brief"]) + "\n\n" + self._offer(job))
         if stage == "needs_key" and self.api is not None:
-            return "Your key is in.\n\n" + self._offer(job)
+            try:  # Say so now if the new key won't work, rather than after they confirm.
+                problem = self._key_problem(job)
+            except ApiError:
+                problem = ""
+            return problem or "Your key is in.\n\n" + self._offer(job)
         if stage == "needs_key":
-            return ("Finding real contacts needs a free Leadpoet account. New accounts get 100 free credits, "
-                    "enough for 10 matching companies with verified contacts.\n"
-                    f"1. Sign up: https://leadpoet.com\n2. Create an API key in Settings, Developer, with these permissions: {', '.join(SCOPE_NAMES.values())}\n"
-                    "3. Add it as LEADPOET_API_KEY in Hermes\n"
+            return (f"Finding real contacts takes a free Leadpoet account, and your first {COMPANIES} companies are free.\n\n"
+                    f"1. Sign up: {SIGNUP_URL}\n2. {KEY_STEPS}\n"
+                    f"3. Add it where Hermes runs: {ADD_KEY}\n\n"
                     f"Then: /customers go {self._brief_code(job)}")
         if stage == "needs_credits":
             if job.get("other_request"):
                 return ("I see a new search in Leadpoet, but its text isn't the one I gave you, so I didn't assume it's this one.\n"
                         f"If it is: /customers use {code_for(job['id'], job['other_request']['id'])}")
-            if job.get("balance"):
-                return (_balance_note(job["balance"], job.get("quoted_credits") or 0) + "\n"
+            if job.get("balance") or job.get("plan") not in (None, "", "free"):  # A paid plan tops up. Only a free one has credits to claim.
+                return (_balance_note(job.get("balance") or 0, job.get("quoted_credits") or 0) + "\n"
                         f"Add credits here: {LEAD_ENGINE_URL}\nThen: /customers go {self._brief_code(job)}")
-            return ("New accounts get 100 free credits with their first request, which Leadpoet takes in the app to keep bots out. "
-                    "If you've used yours, add credits there instead.\n"
-                    f"Paste this there: {LEAD_ENGINE_URL}\n\n{briefs.description(job['brief'])}\n\n"
-                    "I'll pick it up from there and ping you. /customers check looks now.")
+            return (f"Free accounts get {FREE_CREDITS} credits, enough for these {COMPANIES} companies. "
+                    "Leadpoet takes that request in its app, to keep bots out.\n\n"
+                    f"1. Open {LEAD_ENGINE_URL}\n"
+                    f"2. Under \"Describe your ideal customer\", paste:\n\n{briefs.description(job['brief'])}\n\n"
+                    f"3. Under \"Describe your product or service\", paste:\n\n{briefs.product_text(job['brief'])}\n\n"
+                    f"4. Keep Companies at {COMPANIES} with one contact each, then press Submit request.\n\n"
+                    "I'll pick it up from there and ping you when your contacts land. /customers check looks now.\n"
+                    f"Already used your free credits? Add credits there, then: /customers go {self._brief_code(job)}")
         if stage == "finding" and getattr(self.api, "demo", False):
             return ("For real, this is where Leadpoet takes 1 to 2 days to find and verify every contact, and Hermes pings you when they land. "
                     "The demo skips the wait. Send /customers")
         if stage == "finding" and job.get("delivered_empty"):
             return "Leadpoet finished, but I can't see a contact with an email yet. Check Pipeline in Leadpoet. /customers check looks again."
         if stage == "finding":
-            checked = "against your profile and for a recent buying signal" if briefs.signals_text(job["brief"]) else "against your profile"
+            # A request typed into the app carries the profile, not the signals.
+            signalled = briefs.signals_text(job["brief"]) and not job.get("from_app")
+            checked = "against your profile and for a recent buying signal" if signalled else "against your profile"
             return (f"Leadpoet is on it. Each company is checked {checked}, "
                     "and every contact is verified, so this usually takes 1 to 2 days.\n\n"
                     "I'll message you here the moment they're in. Waiting costs no tokens.")
         if stage == "ready":
-            return _arrivals(job["people"]) + "\nWrite their emails: /customers write"
+            return _arrivals(job["people"]) + "\n\nWrite their emails: /customers write"
         if stage == "writing":
             return "Still researching. /customers write continues."
         if stage == "reviewing":
@@ -1085,20 +1116,26 @@ class Customers:
         code = self._brief_code(job)
         if self.api is None:
             return (f"Next, find {COMPANIES} companies with verified contacts.\n"
-                    "New Leadpoet accounts get 100 free credits, enough for this.\n\n"
+                    f"It takes a free Leadpoet account, and your first {COMPANIES} companies are free.\n\n"
                     f"To confirm, reply:\n/customers go {code}")
         if getattr(self.api, "demo", False):
             return f"See how it finds prospects, using 3 made-up companies: /customers go {code}"
         try:
             price = int((self.api.contact_settings().get("pricing") or {}).get("credits_per_company") or 0)
-            balance = int(self.api.credits().get("credits_remaining") or 0)
+            credits = self.api.credits()
+            balance = int(credits.get("credits_remaining") or 0)
         except (ApiError, TypeError, ValueError):
-            price = balance = 0
+            price, balance, credits = 0, 0, {}
         if price <= 0:
             return f"Next, find {COMPANIES} companies with verified contacts.\n\nTo confirm, reply:\n/customers go {code}"
         cost = COMPANIES * price
-        job["quoted_credits"] = cost
+        job.update(quoted_credits=cost, plan=str(credits.get("plan") or "").lower())
         self.save(job)
+        if not balance and job["plan"] == "free" and cost <= FREE_CREDITS:  # Nothing to top up: the free credits come with the request.
+            return (f"Next, find {COMPANIES} companies with verified contacts.\n"
+                    f"Free accounts get {FREE_CREDITS} credits, enough for all {COMPANIES}. Leadpoet takes that request in its app, "
+                    "so I'll hand you the text to paste.\n\n"
+                    f"To confirm, reply:\n/customers go {code}")
         short = "" if affordable_companies(balance, price) else "\n" + _balance_note(balance, cost)
         return (f"Next, find {COMPANIES} companies with verified contacts.\n"
                 f"Cost: {cost:,} credits. You have {balance:,}.{short}\n\n"

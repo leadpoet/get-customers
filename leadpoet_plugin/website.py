@@ -300,6 +300,8 @@ def _parse(html: str, styled: bool = True) -> _Extractor:
             extractor.feed(html[start:start + 65536])
             if extractor.size > 3 * MAX_PAGE_CHARS:
                 break
+        else:
+            extractor.close()  # Newer Pythons hold a long script back until told the page has ended.
     except Exception:  # Malformed markup keeps whatever was read so far.
         pass
     if styled and len(extractor.text()) < 200:  # Text hidden only until a script runs is still the page.

@@ -13,12 +13,13 @@ if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
 from leadpoet_plugin.api import ApiError, LeadpoetApi  # noqa: E402
-from leadpoet_plugin.customers import HELP as CUSTOMERS_HELP, Customers  # noqa: E402
+from leadpoet_plugin.customers import ADD_KEY, BAD_KEY, HELP as CUSTOMERS_HELP, KEY_STEPS, Customers  # noqa: E402
 from leadpoet_plugin.customers_demo import SELLER, DemoCustomersApi, DemoLlm, demo_fetch  # noqa: E402
 from leadpoet_plugin.demo import DemoApi  # noqa: E402
 from leadpoet_plugin.desk import Desk  # noqa: E402
 from leadpoet_plugin.poll import data_dir, get_key, main as poll_main  # noqa: E402
 from leadpoet_plugin.store import Store  # noqa: E402
+from leadpoet_plugin.style import render  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,10 @@ HELP = """/desk: answer the next reply
 /desk status: check your connection
 /desk demo: try it with fictional replies
 /desk demo off: return to your workspace"""
-SETUP = ("Add your Leadpoet API key as LEADPOET_API_KEY, or try it first with /desk demo.\n"
-         "Keys are in Leadpoet under Settings, Developer.")
+SETUP = ("/desk answers the replies to your Leadpoet outreach, so it needs your Leadpoet API key.\n\n"
+         f"1. {KEY_STEPS}\n2. Add it where Hermes runs: {ADD_KEY}\n\n"
+         "No account yet? Try it with made-up replies: /desk demo\n"
+         "Or find your first customers: /customers yoursite.com")
 
 
 def is_allowed(platform: str, source: Any, allowed_ids: Any) -> bool:
@@ -231,7 +234,7 @@ class Plugin:
 def _trouble(error: ApiError) -> str:
     """Leadpoet's errors, in words that say what to do next."""
     if error.status in (401, 403):
-        return "Leadpoet didn't accept your API key. Create a new one in Settings, Developer, and add it as LEADPOET_API_KEY."
+        return BAD_KEY
     if error.status == 429:
         return "Leadpoet asked me to slow down. Nothing was lost. Try again in a minute."
     if error.ambiguous or error.status >= 500:
@@ -298,14 +301,26 @@ CUSTOMERS_SCHEMA = {
 }
 
 
+def _styled(handler: Any) -> Any:
+    """The reply as written, with the emphasis its surface can show. Hermes passes the same context either way."""
+    def run(raw_args: str, *, platform: str = "", source: Any = None, **context: Any) -> Any:
+        reply = handler(raw_args, platform=platform, source=source, **context)
+        try:
+            return render(reply, platform)
+        except Exception:  # Emphasis is a nicety. The reply itself must always arrive.
+            logger.exception("leadpoet reply styling failed")
+            return reply
+    return run
+
+
 def register(ctx: Any) -> None:
     plugin = Plugin(ctx)
     ctx.register_tool("leadpoet_desk_current", "leadpoet_desk", CURRENT_SCHEMA, plugin.tool_current)
     ctx.register_tool("leadpoet_desk_set_draft", "leadpoet_desk", SET_DRAFT_SCHEMA, plugin.tool_set_draft)
     ctx.register_tool("leadpoet_customers_status", "leadpoet_desk", CUSTOMERS_SCHEMA, plugin.tool_customers)
-    ctx.register_command("customers", handler=plugin.customers_command, description="Turn your website into customers",
+    ctx.register_command("customers", handler=_styled(plugin.customers_command), description="Turn your website into customers",
                          args_hint="yoursite.com | demo")
-    ctx.register_command("desk", handler=plugin.command, description="Answer your Leadpoet sales replies",
+    ctx.register_command("desk", handler=_styled(plugin.command), description="Answer your Leadpoet sales replies",
                          args_hint="list | check | demo | send <code>")
     ctx.register_cli_command(name="leadpoet", help="Set up Leadpoet alerts",
                              setup_fn=_watch_setup, handler_fn=_watch_command)

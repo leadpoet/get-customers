@@ -28,7 +28,7 @@ Want to see it read your real site? `/customers demo yoursite.com`. The brief is
 
 10 companies with verified contacts, email or LinkedIn outreach from one sender, and a CRM pipeline in Leadpoet that tracks every contact and reply. No card needed.
 
-New Leadpoet accounts get 100 free credits, enough for those 10 companies. Hermes hands you the prepared request and picks it up from there.
+Free accounts get 100 credits, enough for those 10 companies. Leadpoet takes that first request in its app, so Hermes hands you the text for each box, then picks the search up and pings you when your contacts land.
 
 ## Install
 
@@ -39,11 +39,26 @@ hermes plugins install leadpoet
 hermes plugins enable leadpoet
 ```
 
-On Hermes 0.23.0, run `hermes update` first, or install from the repo: `hermes plugins install https://github.com/leadpoet/get-customers`.
+The catalog pins a reviewed release, so it can trail this repo by a version. For the newest one, or on Hermes 0.23.0 without `hermes update`, install from the repo:
+
+```
+hermes plugins install https://github.com/leadpoet/get-customers
+hermes plugins enable leadpoet
+```
 
 Restart the gateway if it's running, so your phone sees `/customers`: `hermes gateway restart`.
 
-For real contacts, create a key in [Leadpoet](https://leadpoet.com) under Settings, Developer, and add it to Hermes as `LEADPOET_API_KEY`.
+For real contacts, add a Leadpoet API key. The account is free, and so are your first 10 companies:
+
+1. Sign up at [leadpoet.com/auth](https://leadpoet.com/auth).
+2. Open [Integrations](https://leadpoet.com/dashboard/account?section=integrations), then Developer, API keys, Create API key. Name it, choose Select all, and copy the key.
+3. Add it where Hermes runs:
+
+```
+hermes config set LEADPOET_API_KEY <your key>
+```
+
+Hermes picks the key up on your next message. If you skip this, `/customers` and `/desk` show these same steps when a key is needed.
 
 Then turn on pings, so Hermes tells you when contacts land and replies arrive:
 

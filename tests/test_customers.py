@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from leadpoet_plugin.api import ApiError
-from leadpoet_plugin.brief import description, write_brief
+from leadpoet_plugin.brief import description, product_text, write_brief
 from leadpoet_plugin.customers import Customers, affordable_companies
 from leadpoet_plugin.customers_demo import DemoCustomersApi, DemoLlm, SELLER, demo_fetch
 from leadpoet_plugin.store import Store
@@ -165,9 +165,17 @@ class FindCase(Case):
 
     def test_short_credits_hand_off_to_the_free_offer_and_adopt_the_app_request(self):
         self.api.credits_left = 0
-        text = self.customers.handle("go", self.code("go"))
-        self.assertIn("100 free credits", text)
-        self.assertIn("/dashboard/lead-engine", text)
+        go = self.code("go")
+        text = self.customers.handle("go", go)
+        brief = self.customers.job()["brief"]
+        # Both of the form's required boxes, each with the text that goes in it, so nobody has to write anything.
+        ideal, product = text.index('"Describe your ideal customer"'), text.index('"Describe your product or service"')
+        self.assertLess(text.index("/dashboard/lead-engine"), ideal)
+        self.assertLess(ideal, text.index(description(brief)))
+        self.assertLess(text.index(description(brief)), product)
+        self.assertLess(product, text.index(product_text(brief)))
+        self.assertIn("Submit request", text)
+        self.assertIn(f"/customers go {go}", text)  # The way back for someone whose free credits are spent.
         self.assertEqual(self.api.requests, [])
         self.api.app_requests = [{"id": "old", "created_at": "2020-01-01T00:00:00Z"},
                                  {"id": "demo-find", "created_at": "2099-01-01T00:00:00Z", "icp_id": "icp-1",
@@ -178,9 +186,40 @@ class FindCase(Case):
     def test_no_key_shows_the_free_offer(self):
         customers = Customers(None, Store(Path(self.tmp.name) / "b.db"), DemoLlm(), demo_fetch)
         text = customers.start(SELLER)
-        self.assertIn("100 free credits", text)
+        self.assertIn("first 10 companies are free", text)
         code = text.split("/customers go ")[1].split()[0]
-        self.assertIn("Create an API key", customers.handle("go", code))
+        steps = customers.handle("go", code)
+        # Where to sign up, where the key is made, the one command that adds it, and the way back.
+        for needed in ("https://leadpoet.com/auth", "https://leadpoet.com/dashboard/account?section=integrations", "Create API key",
+                       "Select all", "hermes config set LEADPOET_API_KEY <your key>", f"/customers go {code}"):
+            self.assertIn(needed, steps)
+
+    def test_a_key_added_after_the_offer_is_checked_before_it_is_welcomed(self):
+        customers = Customers(None, Store(Path(self.tmp.name) / "c.db"), DemoLlm(), demo_fetch)
+        code = customers.start(SELLER).split("/customers go ")[1].split()[0]
+        customers.handle("go", code)
+        customers.api = self.api
+        self.assertIn("Your key is in.", customers.handle("", ""))
+        self.api.identity = lambda: (_ for _ in ()).throw(ApiError("Invalid API credential", 401))
+        text = customers.handle("", "")
+        self.assertNotIn("Your key is in.", text)
+        self.assertIn("hermes config set LEADPOET_API_KEY <your key>", text)
+
+    def test_a_free_account_with_no_credits_is_offered_its_free_search_not_a_top_up(self):
+        self.api.credits_left = 0
+        self.api.credits = lambda: {"credits_remaining": 0, "plan": "free"}
+        text = self.customers.handle("", "")
+        self.assertIn("Free accounts get 100 credits", text)
+        self.assertNotIn("doesn't cover", text)
+        self.assertIn("Describe your ideal customer", self.customers.handle("go", self.code("go")))
+
+    def test_a_paid_account_with_no_credits_is_told_what_it_is_short(self):
+        self.api.credits_left = 0
+        self.api.credits = lambda: {"credits_remaining": 0, "plan": "growth"}
+        self.assertIn("doesn't cover", self.customers.handle("", ""))
+        text = self.customers.handle("go", self.code("go"))  # A paid plan tops up. It has no free credits to claim.
+        self.assertIn("Add credits here", text)
+        self.assertNotIn("Free accounts", text)
 
     def test_waiting_is_silent_until_contacts_land_then_pings_once(self):
         self.customers.handle("go", self.code("go"))
@@ -199,8 +238,10 @@ class FindCase(Case):
         self.api.state = "completed"
         text = self.customers.advance()
         self.assertIn("Why each company:\n• Pinecrest Freight: Posted a night dispatcher role", text)
-        self.assertNotIn("Harbor Lane", text)
-        self.assertNotIn("Tallgrass", text)
+        self.assertIn("• Harbor Lane Roasters: Matches your profile.", text)  # Every company is listed, so the count adds up.
+        self.assertIn("• Tallgrass Couriers: Matches your profile.", text)
+        self.assertNotIn(body["request_description"].upper(), text)
+        self.assertNotIn("N/A", text)
         self.assertEqual([person["why"] != "" for person in self.customers.job()["people"]], [True, False, False])
 
     def test_another_workspaces_contacts_are_ignored(self):
@@ -1060,6 +1101,8 @@ class RealApiShapeTests(Case):
         self.api.identity = lambda: {"scopes": ["credits:read"]}
         text = self.customers.handle("go", self.code("go"))
         self.assertIn("Manage Lead engine", text)
+        self.assertNotIn("Read credits", text)  # Only what's missing.
+        self.assertIn("hermes config set LEADPOET_API_KEY <your key>", text)
         self.assertEqual(self.api.requests, [])
 
     def test_a_mailbox_signature_replaces_only_the_sign_off(self):
