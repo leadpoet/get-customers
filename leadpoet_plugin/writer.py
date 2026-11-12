@@ -107,7 +107,7 @@ _SEQUENCE_SYSTEM = (
     f"Hi {{first_name}},\n{PERSONAL}\nIf late handoffs slow your drivers down, Pinecrest Freight lets you track every "
     "cold-chain lane in one place [1]. It runs six days a week out of Rotterdam [2].\nIs this worth a short call?\nBest,\n{sender}\n"
     "Use the buyer's problem for the conditions. Use different proof in each email, choosing the proof that most directly solves "
-    "the buyer's problem. Leave out proof about policies, data handling or setup unless the problem is about that. Never use proof about a different kind of customer than the buyer, such as hospitals when the buyer is schools. The last email is the shortest: one claim and one question. Each email asks a different question. At most one sentence per email starts with If, and each email names a different problem, or none. You know nothing about the recipient's "
+    "the buyer's problem. With fewer proofs than emails, say a reused proof in other words: never repeat a sentence. Leave out proof about policies, data handling or setup unless the problem is about that. Never use proof about a different kind of customer than the buyer, such as hospitals when the buyer is schools. The last email is the shortest: one claim and one question. Each email asks a different question. At most one sentence per email starts with If, and each email names a different problem, or none. You know nothing about the recipient's "
     "company, so never state anything about it. Never pressure the reader. "
     "A subject is two to four plain words a colleague would write, naming the buyer's problem or that email's claim, like Handover time. Build it only from words in the proof list or the buyer's problem, with no placeholder. The only subjects that may use {company} are "
     "Question for {company} and the seller's name followed by for {company}."
@@ -731,7 +731,8 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
         cites = {number for found in _CITATION.findall(body) for number in re.findall(r"\d+", found)}
         earlier = next((spot for spot, before in enumerate(used, 1) if cites <= before), 0)
         # Seen live, run 27: with two proofs, email three said email one's "Leadpoet lets you get contacts at ..." word for word.
-        stated = {re.sub(r"\W+", " ", claim).strip().lower() for claim in claims}
+        # Seen live, the same run once fixed: "If your reps spend hours ..., Leadpoet lets you get contacts at ..." is the same claim.
+        stated = {re.sub(r"\W+", " ", re.sub(r"^if\b[^,]*,\s*", "", claim, flags=re.IGNORECASE)).strip().lower() for claim in claims}
         twice = next((spot for spot, before in enumerate(sentences, 1) if stated & before), 0)
         if twice and len({fact["quote"] for fact in brief["facts"]}) >= 2 and not safe_subjects:  # One proof can only be said one way.
             return None, f"{where} repeats a sentence from email {twice} word for word. Say it another way, tied to a different problem."

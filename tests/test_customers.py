@@ -1228,6 +1228,8 @@ class EvidenceTests(unittest.TestCase):
         self.assertIsNone(emails_back)
         self.assertIn("repeats a sentence from email 1", problem)
         self.assertTrue(check_sequence(repeat, brief, safe_subjects=True)[0])  # Kept in hand rather than losing all three.
+        wrapped = "Hi,\n[[PERSONAL]]\nIf checkout drags at the till, Stripe lets you accept payments online [1].\nWorth a call?"
+        self.assertIsNone(check_sequence(self.emails(wrapped, [email["body"] for email in repeat["emails"][1:]]), brief)[0])
         self.assertTrue(validate_sequence(self.emails(first, ("Stripe sends invoices [2]. Who handles billing?",
                                                               "Stripe lets you accept payments online in minutes [1]. Open to a call?")), brief))
 
@@ -1277,7 +1279,8 @@ class EvidenceTests(unittest.TestCase):
         self.assertIsNone(validate_sequence(repeat, brief))
         self.assertTrue(check_sequence(repeat, brief, safe_subjects=True)[0])  # Kept in hand rather than losing all three.
         two = {**brief, "facts": brief["facts"][:2]}
-        self.assertTrue(validate_sequence(emails("If checkout drags, Stripe lets you accept payments online [1]."), two))
+        self.assertTrue(validate_sequence(emails("If checkout drags, Stripe can accept payments online [1]."), two))
+        self.assertIsNone(validate_sequence(emails("If checkout drags, Stripe lets you accept payments online [1]."), two))  # Word for word, run 27.
 
     def test_no_email_only_names_what_the_seller_is(self):
         """Seen live: email three was only "Leadpoet is a B2B lead sourcing and outreach platform." and a question."""
