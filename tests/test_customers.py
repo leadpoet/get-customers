@@ -744,7 +744,14 @@ class ReviewFindingsCase(Case):
                 "ACE OUTDOOR SERVICES LLC": "ACE Outdoor Services", "NASA FEDERAL CREDIT UNION": "NASA Federal Credit Union",
                 "Instantly AI": "Instantly AI", "22nd Century Group, Inc.": "22nd Century Group", "IBM": "IBM", "Inc.": "Inc.",
                 "Balch & Bingham LLP": "Balch & Bingham", "IMRON Corporation": "IMRON", "IRALOGIX": "IRALOGIX",
-                "DYNICS, Inc.": "DYNICS"}
+                "DYNICS, Inc.": "DYNICS", "Kahuna | Skills & Competency Management SaaS Platform": "Kahuna",
+                "AG Adjustments, a Cadex Company": "AG Adjustments", "CSG (Commercial Services Group, Inc.)": "CSG",
+                "Blitz: Automated Commission Management": "Blitz", "APS - Adaptive Processing Solutions": "APS",
+                "Intermountain Electric, Inc. (IME)": "Intermountain Electric", "Post Guard / Encore Commercial Products": "Post Guard",
+                "(TIG) The Innovation Group": "The Innovation Group", "Hewlett-Packard": "Hewlett-Packard",
+                "Kraft / Heinz": "Kraft / Heinz", "Sherwin - Williams": "Sherwin - Williams", "Re: Build Manufacturing": "Re: Build Manufacturing",
+                "A / B Testing Partners": "A / B Testing Partners", "Smokeball - Legal Software": "Smokeball",
+                "ACME WIDGETS | Industrial Supplies": "ACME Widgets", "ASCO - (Asphalt Surfacing Company)": "ASCO"}
         for record, spoken in said.items():
             touch = render(emails, {"name": "Mark Bell", "company": record}, [], "S")[0]
             self.assertEqual(touch["subject"], f"Question for {spoken}", record)
@@ -1517,6 +1524,23 @@ class SignalOpenerTests(unittest.TestCase):
         self.assertEqual(opener("Hunter", "Hunter.io posted its first SDR role in May 2026.", "Hunter.io posted its first SDR role in May 2026."),
                          ["Hunter.io posted its first SDR role in May 2026."])
         self.assertEqual(opener("Acme", "Acme, Inc. opened a Denver office.", "Acme, Inc. opened a Denver office."), ["Acme, Inc. opened a Denver office."])
+        # Records carry taglines and asides; notes write the name with or without them.
+        for company, sentence in (("AG Adjustments, a Cadex Company", "AG Adjustments is hiring inside sales reps."),
+                                  ("Alco Building Solutions (ABS)", "Alco Building Solutions (ABS) is hiring a sales lead."),
+                                  ("Alco Building Solutions (ABS)", "Alco Building Solutions is hiring a sales lead.")):
+            self.assertEqual(opener(company, sentence, sentence), [sentence])
+        # A one-word bare name may be an ordinary word, and a short or joined record is not cut at all.
+        for company, sentence in (("Alpine, an ITW Company", "Alpine Electronics hired a CRO."),
+                                  ("Home | Acme Roofing", "Home sales in Denver rose 8% in May."),
+                                  ("Kahuna | Skills & Competency Management SaaS Platform", "Kahuna is hiring SDR managers."),
+                                  ("A / B Testing Partners", "A new VP of Sales joined Acme in May."),
+                                  ("Clear / Point Health", "Clear demand for SDRs rose in May."),
+                                  ("AC / DC Electric", "AC units sold out in Texas in May."),
+                                  ("Re: Build Manufacturing", "Re-shoring grew 20% in May.")):
+            self.assertEqual(opener(company, sentence, sentence), [], company)
+        self.assertEqual(opener("Kahuna | Skills Platform", "Hiring SDR managers.", "Kahuna | Skills Platform is hiring SDR managers."), [])
+        self.assertEqual(opener("Kahuna | Skills Platform", "Hiring SDR managers.", "Kahuna is hiring SDR managers."),
+                         ["Kahuna is hiring SDR managers."])
 
     def test_another_companys_name_never_opens_as_theirs(self):
         """Matching part of the name must not hand a sister company's or a namesake's news to them."""

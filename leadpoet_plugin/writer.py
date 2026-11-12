@@ -284,10 +284,16 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     signal = _sentence(_INFERENCE.split(lead_sentence(note), 1)[0].rstrip(" ,;"))
     if not signal or _HEDGE.search(_MONTH_MAY.sub("", signal)) or _DOUBT.search(note):  # A guess is not a reason to write.
         return [], 0
-    company = _name_in_note(signal, str(person.get("company") or ""))
+    record = str(person.get("company") or "")
+    # Notes write the full record ("Alco Building Solutions (ABS) is") or drop its tagline ("AG Adjustments is" for AG
+    # Adjustments, a Cadex Company). The longer match wins. A one-word bare name can be an ordinary word ("Home sales
+    # rose" for Home | Acme Roofing), so only the full record can match it.
+    bare = _bare_name(record)
+    found = [_name_in_note(signal, name) for name in dict.fromkeys((record, bare if " " in bare else record))]
+    company = max((name for name in found if name), key=len, default=None if None in found else "")
     if company is None:  # It opens on someone else's name.
         return [], 0
-    company = company or str(person.get("company") or "")
+    company = company or spoken_company(record)
     raw = _complete(llm, _SIGNAL_SYSTEM, f"Company: {company}\n<note>\n{without_tag(signal, 'note')}\n</note>",
                     f"leadpoet signal line: {company}")
     line = _sentence(clean((raw or {}).get("line"), 400))
@@ -508,20 +514,39 @@ _LEGAL_FORM = re.compile(r"[,\s]+(?:inc|incorporated|l\.?l\.?c|ltd|limited|corp|
                          re.IGNORECASE)
 
 
-def spoken_company(company: str) -> str:
-    """The name as a person writes it in an email: "Spekit" for Spekit, Inc., "Ace Outdoor Services" for ACE OUTDOOR
-    SERVICES LLC. A quarter of real records carry a legal form, and "Who handles outbound at Spekit, Inc.?" reads as
-    a mail merge. In a name written all in capitals, words of five or more letters are recased; shorter ones may be
-    acronyms. A one-word name like IRALOGIX, or IMRON in "IMRON Corporation", is how they style it, so it stays."""
+# Records carry asides and taglines: "ADG (Aquatic Development Group)", "Kahuna | Skills & Competency Management SaaS
+# Platform", "Blitz: Automated Commission Management", "Alpine, an ITW Company", "APS - Adaptive Processing Solutions".
+_ASIDE = re.compile(r"\s*\([^()]*\)")
+_TAGLINE = re.compile(r"\s*(?:\||:\s|,\s+an?\s).*$")
+# " - " and " / " also join two names: Kraft / Heinz, Sherwin - Williams. Only a tagline of two or more words is cut.
+_JOINED = re.compile(r"\s[-–—‒−/]\s")
+
+
+def _bare_name(company: str) -> str:
+    """The record's name without its tagline or legal form, as written. The full record when that would leave fewer
+    than three characters ("Re: Build Manufacturing") or a dangling "&"."""
     name = re.sub(r"\s+", " ", str(company or "")).strip()
-    shorter = name
-    while (cut := _LEGAL_FORM.sub("", shorter).rstrip(" ,")) and cut != shorter:
-        shorter = cut
-    if re.search(r"(?:&|\band)$", shorter, re.IGNORECASE):  # "Slagle Roofing & Sons" style names lose a part.
-        shorter = name
-    if name.isupper() and " " in shorter:
-        shorter = re.sub(r"\b[A-Z]{5,}\b", lambda word: word.group().capitalize(), shorter)
-    return shorter or name
+    bare = _ASIDE.sub("", name).strip(" |").rstrip(" -–—‒−/,")  # "ASCO - (Asphalt Surfacing Company)"
+    if len(cut := _TAGLINE.sub("", bare).strip(" ,")) >= 3:
+        bare = cut
+    left, *right = _JOINED.split(bare, 1)
+    if right and len(left) >= 3 and len(right[0].split()) >= 2:
+        bare = left
+    while (cut := _LEGAL_FORM.sub("", bare).rstrip(" ,")) and cut != bare:
+        bare = cut
+    return name if len(bare) < 3 and len(bare) < len(name) or re.search(r"(?:&|\band)$", bare, re.IGNORECASE) else bare
+
+
+def spoken_company(company: str) -> str:
+    """The name as a person writes it in an email: "Spekit" for Spekit, Inc., "Kahuna" for Kahuna | Skills &
+    Competency Management SaaS Platform. A quarter of real records carry a legal form or a tagline, and "Who handles
+    outbound at Spekit, Inc.?" reads as a mail merge. In a name written all in capitals, words of five or more letters
+    are recased; shorter ones may be acronyms. A one-word name like IRALOGIX, or IMRON in "IMRON Corporation", is how
+    they style it, so it stays."""
+    bare = _bare_name(company)
+    if bare.isupper() and " " in bare:
+        bare = re.sub(r"\b[A-Z]{5,}\b", lambda word: word.group().capitalize(), bare)
+    return bare
 
 
 def render(emails: list[dict], person: dict, lines: list[dict], sender: str) -> list[dict]:
