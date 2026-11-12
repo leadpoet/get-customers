@@ -399,24 +399,53 @@ _OWN_PRODUCTS = frozenset({"platform", "product", "products", "app", "apps", "so
                             "service", "services", "solution", "solutions", "ai", "agent", "agents", "assistant", "copilot", "chatbot",
                             "voice", "feature", "features", "model", "models", "engine", "system", "systems", "suite", "module",
                             "modules", "integration", "integrations", "kiosk", "kiosks", "device", "devices", "hardware",
-                            "crm", "ats", "hris", "erp"})  # Seen live, run 42: "Gem's recruiting CRM was used".
+                            "crm", "ats", "hris", "erp",  # Seen live, run 42: "Gem's recruiting CRM was used".
+                            "tms", "wms", "lms", "pos", "ehr", "emr", "cms", "cdp", "cpq"})  # Run 43: "Newtrul's TMS is used by".
 _THIRD_PARTIES = frozenset({"competitor", "competitors", "rival", "rivals", "customer", "customers", "client", "clients", "partner", "partners",
-                            "investor", "investors", "backer", "backers", "parent", "subsidiary", "acquirer", "vendor", "vendors", "supplier", "suppliers"})
+                            "investor", "investors", "backer", "backers", "parent", "subsidiary", "acquirer", "vendor", "vendors", "supplier", "suppliers",
+                            "provider", "reseller", "distributor"})  # "Zuma's POS provider Toast raised" is Toast's news.
+
+
+_VERBS = frozenset("is was are were has have had now will would can could just already also still went grew hit won rose fell "
+                   "became began took got saw set ran came gave drew led cut beat kept held brought bought sold "
+                   "said told met lost found left paid sent spent shipped".split())
+_PARTICIPLES = frozenset({"based", "powered", "driven", "backed", "enabled", "focused", "owned", "funded", "led", "built", "made"})
+
+
+def _subject(words: list[str], at: int) -> list[str] | None:
+    """The words after "Zuma's" up to the verb: "POS maker" in "Zuma's POS maker raised", "AI phone answering" in
+    "Popmenu's AI phone answering now handles". None when no verb comes within six words."""
+    for end in range(at, min(len(words), at + 7)):
+        word = words[end]
+        if word in _OWN_PRODUCTS or word in _OWN_PARTS or word in _THIRD_PARTIES:
+            continue
+        hyphened = end > at and word in _PARTICIPLES  # "Dallas-based", "AI-powered" describe; they don't act.
+        if (word in _VERBS or (word.endswith("ed") and not hyphened)
+                or (len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "'s", "ers", "ors", "ants", "ents", "ists", "ees")))):
+            return words[at:end] if end > at else None
+    return None
 
 
 def _owned(words: list[str], at: int) -> bool:
     """ "Zuma's customer base grew" is theirs too; "Zuma's customer Acme raised" is Acme's news (run 32).
 
     So is "Persefoni's carbon accounting platform was adopted" (run 33), but not "Ramp's competitor Beta's platform".
-    Only words that are surely theirs count. A rule that counted anything not named as someone else let about 40 of 108
-    red-team notes through ("Zuma's spinoff", "new owner", "reseller"), so a third party anywhere after it still refuses:
-    "Zuma's sales partner Acme" and "Zuma's AI rival" are someone else's news."""
-    ahead = words[at:at + 4]
+    The word just before the verb says whose news it is: "Newtrul's TMS is used" is theirs (run 43), while "Zuma's POS
+    maker raised", "Zuma's platform maker Acme raised" and "Zuma's AI lab raised" are someone else's. Red team, run 43:
+    about 80 such notes opened when any product word nearby counted. A third party, an apostrophe, "ex" or "former",
+    or a "which" or "who" clause anywhere after it still refuses: "Zuma's sales partner Acme", "built by Acme, which raised"."""
     if at < len(words) and words[at] in ("customer", "user", "client") and words[at + 1:at + 2] in (["base"], ["count"]):
         return True
-    if _THIRD_PARTIES.intersection(words[at:]) or any("'" in word for word in ahead):  # "cofounder left to start a rival"
+    if (_THIRD_PARTIES.intersection(words[at:]) or {"ex", "former", "which", "who"}.intersection(words[at:])
+            or any("'" in word for word in words[at:at + 4])):  # "cofounder left to start a rival"
         return False
-    return at < len(words) and words[at] in _OWN_PARTS or any(word in _OWN_PRODUCTS for word in ahead)
+    subject = _subject(words, at)
+    if not subject:
+        return False
+    head = subject[-1]
+    if "the" in subject:  # "Zuma's POS and the Toast network grew"; "Travel-as-a-Service" keeps its "a"
+        return False
+    return head in _OWN_PARTS or head in _OWN_PRODUCTS or (head.endswith("ing") and bool(_OWN_PRODUCTS.intersection(subject)))
 
 
 def _own_possessive(words: list[str], name: list[str]) -> list[str]:
@@ -457,7 +486,8 @@ def _name_in_note(text: str, company: str) -> str | None:
     used = 0
     while used < len(name) and start + used < len(words) and words[start + used] == name[used]:
         used += 1
-    if used == len(name) - 1 and start + used + 1 < len(words) and words[start + used] == f"{name[-1]}'s" and _owned(words, start + used + 1):
+    if (used == len(name) - 1 and start + used + 1 < len(words) and words[start + used] == f"{name[-1]}'s"
+            and _owned(words, start + used + 1)):
         return text[:found[start + used].end() - 2]  # "Ashby's CEO said": what follows is theirs.
     if not used:
         return ""
