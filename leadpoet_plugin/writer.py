@@ -409,6 +409,8 @@ _THIRD_PARTIES = frozenset({"competitor", "competitors", "rival", "rivals", "cus
 _VERBS = frozenset("is was are were has have had now will would can could just already also still went grew hit won rose fell "
                    "became began took got saw set ran came gave drew led cut beat kept held brought bought sold "
                    "said told met lost found left paid sent spent shipped".split())
+_ROLES = frozenset({"ceo", "cro", "cfo", "coo", "cto", "cmo", "founder", "founders", "cofounder", "cofounders", "president",
+                    "vp", "svp", "evp", "head", "chief", "officer", "director"})
 _PARTICIPLES = frozenset({"based", "powered", "driven", "backed", "enabled", "focused", "owned", "funded", "led", "built", "made"})
 
 
@@ -442,6 +444,14 @@ def _owned(words: list[str], at: int) -> bool:
     subject = _subject(words, at)
     if not subject:
         return False
+    roles = [index for index, word in enumerate(subject) if word in _ROLES]
+    if roles and set(subject[:roles[0]]) <= _OWN_PARTS | {"new", "interim", "acting", "incoming", "founding", "global"}:
+        # "Kettle's CEO, Nate Kugland, said" and "Vouch's VP of Sales, Ola Diaz, is": a name follows the role.
+        # Not "Zuma's POS maker CEO Jane Doe", who runs someone else.
+        named = subject[roles[-1] + 1:]
+        named = named[2:] if named[:1] == ["of"] else named
+        if len(named) <= 5 and not _OWN_PRODUCTS.intersection(named):  # "Emily Yuan and Nico Laqua"
+            return True
     head = subject[-1]
     if "the" in subject:  # "Zuma's POS and the Toast network grew"; "Travel-as-a-Service" keeps its "a"
         return False

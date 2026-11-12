@@ -1798,6 +1798,10 @@ class SignalOpenerTests(unittest.TestCase):
             self.assertEqual(lines, [line], company)
             self.assertNotIn("&amp;", why)
             self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper", "CityDetect", "Ashby", "Zuma", "Persefoni", "Vetcove", "Kleer", "Archy", "Popmenu", "Valyant", "ClearCOGS", "Downtobid", "Gem", "Newtrul")), why)
+        # 0.2.74 refused a name after a role, which 0.2.73 opened.
+        for name, note in (("Kettle", "Kettle's CEO, Nate Kugland, said the company will double its sales team in 2026."),
+                           ("Corgi", "Corgi's founders, Emily Yuan and Nico Laqua, raised $108M in 2026.")):
+            self.assertEqual(opener(name, f"https://www.{name.lower()}.com", note + tail, note)[1], [note])
         # Run 43: the model kept the note's "Mexico–U.S.", and an email allows no dash.
         dashed = "Cargado, a Mexico–U.S. cross-border freight forwarder, opened a Monterrey hub in 2026."
         _, lines = opener("Cargado", "https://www.cargado.com", dashed + tail, dashed)
@@ -1818,7 +1822,8 @@ class SignalOpenerTests(unittest.TestCase):
                      "Zuma's CDP is powered by Segment, which raised $50M in 2026.", "Zuma's ex-CPQ lead founded a startup that raised $5M.",
                      "Zuma's CRM and POS integrator Acme raised $20M in 2026.", "Zuma's platform maker Acme raised $20M in 2026.",
                      "Zuma's POS maker raised $50M in 2026.", "Zuma's AI lab raised $20M in 2026.", "Zuma's CMS built by acme raised $20M.",
-                     "Zuma's POS and the Toast network grew in 2026.", "Zuma's POS maker, toast, hired 200 reps in 2026."):
+                     "Zuma's POS and the Toast network grew in 2026.", "Zuma's POS maker, toast, hired 200 reps in 2026.",
+                     "Zuma's POS maker CEO Jane Doe raised $20M in 2026."):
             self.assertEqual(opener("Zuma", "https://www.getzuma.com", note + tail, note)[1], [], note)  # Someone else's product.
         for note in ("Zuma's sales team plans a launch in 2026.", "Zuma's enterprise team plans to hire 20 reps.",
                      "Zuma unveiled a new plan for European expansion.", "Zuma has grown 10x since 2024 and hired a CRO in March 2025."):
