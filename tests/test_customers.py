@@ -335,6 +335,22 @@ class FindCase(Case):
         self.assertIn("• Pinecrest Freight: Posted a night dispatcher role on Oct 28 that asks for clean shift handovers.\n", text)
         self.assertNotIn("three depots", text)  # The phone shows the event, not the whole note.
 
+    def test_a_listed_hands_on_role_never_beats_a_senior_title(self):
+        """Seen live: a card listed "Sales Development Representative" last, which put an SDR ahead of the VP of Sales."""
+        self.customers.handle("go", self.code("go"))
+        job = self.customers.job()
+        job["brief"]["buyers"] = ["Head of Sales", "Sales Development Representative"]
+        self.customers.save(job)
+        real = self.api.pipeline_contacts
+        self.api.pipeline_contacts = lambda icp: [
+            *({**row, "id": row["id"] + "-sdr", "name": "Sid Rep", "role": "Sales Development Representative",
+               "email": "sid@" + row["email"].split("@")[1]} for row in real(icp)),
+            *({**row, "id": row["id"] + "-vp", "name": "Vera Pratt", "role": "VP of Sales",
+               "email": "vera@" + row["email"].split("@")[1]} for row in real(icp))]
+        self.api.state = "completed"
+        self.customers.advance()
+        self.assertEqual({person["name"] for person in self.customers.job()["people"]}, {"Vera Pratt"})
+
     def test_with_no_listed_role_the_senior_title_is_written_to(self):
         """Seen live: "Sales Development Representative" arrived first and was chosen over the Director of Sales."""
         from leadpoet_plugin.customers import _seniority

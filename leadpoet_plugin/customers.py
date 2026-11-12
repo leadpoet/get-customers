@@ -666,10 +666,12 @@ class Customers:
         rows, best, people = self.api.pipeline_contacts(job.get("icp_id")), {}, []
         buyers = [_squash(role).lower() for role in job["brief"].get("buyers") or [] if _squash(role)]
 
-        def rank(row: dict) -> tuple[int, int]:
+        # The brief may list one hands-on user, such as an SDR, after the buyers. Anyone with a senior title still comes first:
+        # seen live, a card listing "Sales Development Representative" would have written to the SDR over the VP of Sales.
+        def rank(row: dict) -> tuple[bool, int, int]:
             role = _squash(str(row.get("role") or "")).lower()
             listed = next((index for index, buyer in enumerate(buyers) if buyer == role or buyer in role), len(buyers))
-            return listed, _seniority(role)
+            return _seniority(role) == len(_LADDER), listed, _seniority(role)
 
         found: dict[str, int] = {}
         for row in rows:
