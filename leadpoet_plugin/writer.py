@@ -393,7 +393,8 @@ _OWN_PARTS = frozenset({"sales", "team", "teams", "sdr", "sdrs", "ae", "aes", "b
                         "workforce", "valuation", "ceo", "cro", "cfo", "coo", "cto", "cmo", "founder", "founders", "cofounder", "board"})
 
 
-_OWN_PRODUCTS = frozenset({"platform", "product", "products", "app", "software", "api", "tool", "tools"})
+_OWN_PRODUCTS = frozenset({"platform", "product", "products", "app", "apps", "software", "api", "tool", "tools", "marketplace", "network",
+                            "service", "services", "solution", "solutions"})
 _THIRD_PARTIES = frozenset({"competitor", "competitors", "rival", "rivals", "customer", "customers", "client", "clients", "partner", "partners",
                             "investor", "investors", "backer", "backers", "parent", "subsidiary", "acquirer", "vendor", "vendors", "supplier", "suppliers"})
 
