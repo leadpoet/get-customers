@@ -393,8 +393,11 @@ _OWN_PARTS = frozenset({"sales", "team", "teams", "sdr", "sdrs", "ae", "aes", "b
                         "workforce", "valuation", "ceo", "cro", "cfo", "coo", "cto", "cmo", "founder", "founders", "cofounder", "board"})
 
 
+# Seen live, run 39: "Popmenu's AI phone answering now handles" and "Valyant AI's voice ordering went live" opened no email.
 _OWN_PRODUCTS = frozenset({"platform", "product", "products", "app", "apps", "software", "api", "tool", "tools", "marketplace", "network",
-                            "service", "services", "solution", "solutions"})
+                            "service", "services", "solution", "solutions", "ai", "agent", "agents", "assistant", "copilot", "chatbot",
+                            "voice", "feature", "features", "model", "models", "engine", "system", "systems", "suite", "module",
+                            "modules", "integration", "integrations", "kiosk", "kiosks", "device", "devices", "hardware"})
 _THIRD_PARTIES = frozenset({"competitor", "competitors", "rival", "rivals", "customer", "customers", "client", "clients", "partner", "partners",
                             "investor", "investors", "backer", "backers", "parent", "subsidiary", "acquirer", "vendor", "vendors", "supplier", "suppliers"})
 
@@ -526,7 +529,10 @@ def _is_old_news(text: str, today: datetime.date | None = None) -> bool:
 
 # Seen live, run 28: "launched a self-serve plan" is a pricing plan, not a plan to do something. "Its plans to open" still is.
 # Run 37: so is "a dental membership plan startup". A verb's object still marks a plan to act: "its sales team plans a launch".
-_PLAN_NOUN = re.compile(r"\b(?:a|an|the|its|their|new|free|paid|pricing|self-serve|starter|pro|enterprise|team|business|annual|monthly)\s+"
+# Seen live, run 39: "launched a free plan for single-location restaurants" is a price, not an intention, though "for" follows.
+_PLAN_NOUN = re.compile(r"\b(?:free|paid|pricing|self-serve|starter|pro|enterprise|business|annual|monthly)\s+(?:[\w-]+\s+)?plans?\b"
+                        r"(?!\s+(?:to|a|an|the|its|their)\b)|"
+                        r"\b(?:a|an|the|its|their|new|free|paid|pricing|self-serve|starter|pro|enterprise|team|business|annual|monthly)\s+"
                         r"(?:(?:[\w-]+\s+)?plans?|(?:[\w-]+\s+){2}plan)\b(?!\s+(?:to|for|a|an|the|its|their)\b)", re.IGNORECASE)
 # Seen live, run 28: "is hiring SDRs, per its careers page, to sell" told them where we looked, in an email to them.
 _WHERE_SEEN = re.compile(r",?\s*\b(?:per|according to|as seen on|as listed on|as posted on)\s+(?:its|their|the company's)\s+"
