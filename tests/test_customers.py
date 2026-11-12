@@ -1663,10 +1663,10 @@ class SubjectFallbackTests(unittest.TestCase):
 
 
 class SignalOpenerTests(unittest.TestCase):
-    def line(self, text, why="Posted three SDR roles in the past month."):
+    def line(self, text, why="Posted three SDR roles in the past month.", company="Ramp"):
         from leadpoet_plugin.writer import signal_opener
         llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": text})))
-        return signal_opener(llm, {"company": "Ramp", "why": why})
+        return signal_opener(llm, {"company": company, "why": why})
 
     def test_the_opener_restates_the_note_and_nothing_more(self):
         self.assertEqual(self.line("Ramp posted three SDR roles in the past month")[0][0]["line"],
@@ -1691,10 +1691,12 @@ class SignalOpenerTests(unittest.TestCase):
         self.assertEqual((lines[0]["line"], lines[0]["quote"], refused),
                          ("Ramp is hiring two SDRs for outbound into mid-market finance teams.",
                           "Ramp is hiring two SDRs for outbound into mid-market finance teams.", 0))
-        self.assertEqual(self.line("Ramp is hiring two SDRs.", why=note), ([], 1))  # Still word for word.
+        # Still word for word: a line that drops words is refused, and the note opens as written.
+        self.assertEqual(self.line("Ramp is hiring two SDRs.", why=note)[0][0]["line"], "Ramp is hiring two SDRs for outbound into mid-market finance teams.")
         self.assertEqual(self.line("Ramp may be starting outbound.", why="Ramp may be starting outbound. It posted one role."), ([], 0))
         self.assertEqual(self.line("Ramp posted one AE role.", why="Ramp posted one AE role. The evidence is thin."), ([], 0))
-        self.assertEqual(self.line("Ramp Inc. hired a CRO.", why="Ramp Inc. hired a CRO in May. It is building a team.")[0], [])
+        self.assertEqual(self.line("Ramp Inc. hired a CRO.", why="Ramp Inc. hired a CRO in May. It is building a team.")[0][0]["line"],
+                         "Ramp Inc. hired a CRO in May.")
 
     def test_run_fifteen_notes_open(self):
         """Seen live in one run: four of ten notes lost their opener to how they were written, not what they said."""
@@ -1724,7 +1726,13 @@ class SignalOpenerTests(unittest.TestCase):
         llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": "Vareto is hiring two SDRs."})))
         self.assertEqual(signal_opener(llm, {"company": "Vareto", "why": "vareto is hiring two SDRs."})[0][0]["line"], "Vareto is hiring two SDRs.")
         llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": "vareto is hiring two SDRs."})))
-        self.assertEqual(signal_opener(llm, {"company": "Vareto", "why": "vareto is hiring two SDRs."}), ([], 1))
+        self.assertEqual(signal_opener(llm, {"company": "Vareto", "why": "vareto is hiring two SDRs."})[0][0]["line"], "Vareto is hiring two SDRs.")
+        # Run 19: the model changed the tense one time in eight. The note itself still opens; an empty reply still means no event.
+        why = "Dover grew its sales team by 40% this quarter and is hiring two more SDRs." + tail
+        self.assertEqual(self.line("Dover has grown its sales team by 40% this quarter and is hiring two more SDRs.", why=why, company="Dover"),
+                         ([{"line": "Dover grew its sales team by 40% this quarter and is hiring two more SDRs.",
+                            "quote": "Dover grew its sales team by 40% this quarter and is hiring two more SDRs.", "url": ""}], 0))
+        self.assertEqual(self.line("", why=why, company="Dover"), ([], 0))
         # Planning to do something is still a guess, and a different word after their name is someone else.
         self.assertEqual(opener("Acme", "https://acme.com", "Acme is planning to open a Denver office.", "Acme is planning to open a Denver office.")[1], [])
         self.assertEqual(opener("Arch Systems", "https://archsys.io", "Arch Capital hired a VP of Sales.", "Arch Capital hired a VP of Sales.")[1], [])
@@ -1740,7 +1748,8 @@ class SignalOpenerTests(unittest.TestCase):
                                   ("Acme", "Acme, a freight broker, posted two SDR roles in May."),
                                   ("Acme Group", "The Acme Group hired a CRO in May.")):
             self.assertEqual(opener(company, sentence + " It sells to banks.", sentence), [sentence])
-        self.assertEqual(opener("Spark Health Inc", "Spark Health is hiring four SDRs in Denver.", "Spark Health is hiring SDRs."), [])
+        self.assertEqual(opener("Spark Health Inc", "Spark Health is hiring four SDRs in Denver.", "Spark Health is hiring SDRs."),
+                         ["Spark Health is hiring four SDRs in Denver."])
         self.assertEqual(opener("Ramp", "Ramp's competitor Beta raised $20M.", "Ramp's competitor Beta raised $20M."), [])
         self.assertEqual(opener("Ramp", "Ramp may hire SDRs in May.", "Ramp may hire SDRs in May."), [])  # The month isn't a guess; may is.
         self.assertEqual(opener("Acme", "Acme Says It May Hire 50 Reps.", "Acme Says It May Hire 50 Reps."), [])
@@ -1858,7 +1867,7 @@ class SignalOpenerTests(unittest.TestCase):
         lines, _ = self.line("Ramp is hiring two SDRs.", why="Ramp is hiring two SDRs, indicating a potential push into outbound. More.")
         self.assertEqual((lines[0]["line"], lines[0]["quote"]), ("Ramp is hiring two SDRs.", "Ramp is hiring two SDRs."))
         self.assertEqual(self.line("Ramp is hiring two SDRs, indicating a push into outbound.",
-                                   why="Ramp is hiring two SDRs, indicating a push into outbound.")[0], [])
+                                   why="Ramp is hiring two SDRs, indicating a push into outbound.")[0][0]["line"], "Ramp is hiring two SDRs.")
         listed = "Ramp sells to Indicative, Showpad and Highspot."  # A name in a list is not Leadpoet's reading.
         self.assertEqual(self.line(listed, why=listed)[0][0]["line"], listed)
 

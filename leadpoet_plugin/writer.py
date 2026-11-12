@@ -498,12 +498,16 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     if not line:
         return [], 0
     # restates_note pins the opening to their name and the rest to Leadpoet's own words; _name_in_note keeps the name theirs.
-    named = _name_in_note(line, company) or ""
     own = next((word for word in company.split() if word.lower() != "the"), company)
-    good = (len(line) <= MAX_LINE_CHARS and ":" not in line and own in named  # As they write it: not "vareto is hiring".
-            and not _has_forbidden(line, company) and not _PLACEHOLDER.search(line)
-            and restates_note(line, signal, company) and line_is_supported(line, signal, {**person, "company": company}))
-    return ([{"line": line, "quote": signal, "url": ""}], 0) if good else ([], 1)
+
+    def good(text: str) -> bool:
+        return (len(text) <= MAX_LINE_CHARS and ":" not in text and own in (_name_in_note(text, company) or "")  # As they write it: not "vareto is hiring".
+                and not _has_forbidden(text, company) and not _PLACEHOLDER.search(text)
+                and restates_note(text, signal, company) and line_is_supported(text, signal, {**person, "company": company}))
+    # The model's line says it is an event. Seen live, one time in eight: "Dover grew" came back as "Dover has grown",
+    # and a weaker line from their site opened instead. A note that already opens on their name passes as written.
+    line = next((text for text in dict.fromkeys((line, signal)) if good(text)), "")
+    return ([{"line": line, "quote": signal, "url": ""}], 0) if line else ([], 1)
 
 
 def research_person(llm: Any, person: dict, fetcher: Any = None) -> tuple[list[dict], int]:
