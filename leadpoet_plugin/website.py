@@ -53,6 +53,7 @@ class Page:
     url: str
     title: str
     text: str
+    lang: str = ""  # The page's own <html lang>, such as "it" for an Italian site.
 
 
 @dataclass
@@ -114,6 +115,7 @@ class _Extractor(HTMLParser):
         self.size = 0
         self.links: list[str] = []
         self.title = ""
+        self.lang = ""
         self._skip = 0
         self._in_title = False
         self._hidden_tag = ""
@@ -126,6 +128,8 @@ class _Extractor(HTMLParser):
         if _is_hidden(dict(attrs), self._hidden_classes) and tag not in _VOID_TAGS:  # Words a reader can't see can't prove anything.
             self._hidden_tag, self._hidden_depth = tag, 1
             return
+        if tag == "html" and not self.lang:
+            self.lang = str(dict(attrs).get("lang") or "").strip().lower()[:20]
         if tag == "title":
             self._in_title = True
         if tag in _SKIP_TAGS:
@@ -415,7 +419,7 @@ def scan_site(url: str, *, fetcher: Any = fetch) -> Scan:
     home = _parse(html)
     host = urllib.parse.urlsplit(final).hostname or ""
     scan = Scan(domain=host.removeprefix("www."))
-    scan.pages.append(Page(final, home.title.strip(), home.text()[:MAX_PAGE_CHARS]))
+    scan.pages.append(Page(final, home.title.strip(), home.text()[:MAX_PAGE_CHARS], home.lang))
     for link in _pick_links(final, home.links, host):
         if time.monotonic() - started > SCAN_SECONDS:
             break
@@ -424,7 +428,7 @@ def scan_site(url: str, *, fetcher: Any = fetch) -> Scan:
         except SiteError:
             continue
         page = _parse(page_html)
-        scan.pages.append(Page(page_url, page.title.strip(), page.text()[:MAX_PAGE_CHARS]))
+        scan.pages.append(Page(page_url, page.title.strip(), page.text()[:MAX_PAGE_CHARS], page.lang or home.lang))
     if sum(len(page.text) for page in scan.pages) < 200:
         raise SiteError("That site has almost no readable text. It may be built to load only in a browser.")
     return scan

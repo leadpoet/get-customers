@@ -1169,6 +1169,16 @@ class LineSubjectTests(unittest.TestCase):
         self.assertEqual(validate_lines(raw, scan, person), ([], 1))
         raw["lines"][0]["line"] = "Harbor Lane Roasters roast small batches every morning."
         self.assertEqual(len(validate_lines(raw, scan, person)[0]), 1)
+        # Seen live, run 44: an Italian site gave "Indio has 80+ Progetti completati." The emails are in English.
+        scan.pages[0].lang = "it"
+        self.assertEqual(validate_lines(raw, scan, person), ([], 1))
+        scan.pages[0].lang = "en-us"
+        self.assertEqual(len(validate_lines(raw, scan, person)[0]), 1)
+
+    def test_a_site_reads_its_own_language(self):
+        from leadpoet_plugin.website import scan_site
+        page = '<html lang="it-IT"><head><title>Indio</title></head><body><p>' + "Progetti completati per i nostri clienti. " * 20 + "</p></body></html>"
+        self.assertEqual(scan_site("https://indio.example/", fetcher=lambda url: (url, page)).pages[0].lang, "it-it")
 
 
 class EvidenceTests(unittest.TestCase):
@@ -1793,11 +1803,15 @@ class SignalOpenerTests(unittest.TestCase):
                 ("Gem", "https://www.gem.com", "Gem's recruiting CRM was used to make 1 million hires in 2026.",
                  "Gem's recruiting CRM was used to make 1 million hires in 2026."),  # Run 42.
                 ("Newtrul", "https://www.newtrul.com", "Newtrul's TMS is used by over 500 fleets.",
-                 "Newtrul's TMS is used by over 500 fleets.")):  # Run 43.
+                 "Newtrul's TMS is used by over 500 fleets."),  # Run 43.
+                ("Indio", "https://www.indiotech.com", "Indio's Smart Forms platform was adopted by 400 agencies in 2026.",
+                 "Indio's Smart Forms platform was adopted by 400 agencies in 2026."),  # Run 44: "Forms" is no verb.
+                ("Bestow", "https://www.bestow.com", "Bestow's CEO, Melbourne O'Banion, said the company will double its sales team in 2026.",
+                 "Bestow's CEO, Melbourne O'Banion, said the company will double its sales team in 2026.")):  # Run 44.
             why, lines = opener(company, site, note + tail, line)
             self.assertEqual(lines, [line], company)
             self.assertNotIn("&amp;", why)
-            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper", "CityDetect", "Ashby", "Zuma", "Persefoni", "Vetcove", "Kleer", "Archy", "Popmenu", "Valyant", "ClearCOGS", "Downtobid", "Gem", "Newtrul")), why)
+            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper", "CityDetect", "Ashby", "Zuma", "Persefoni", "Vetcove", "Kleer", "Archy", "Popmenu", "Valyant", "ClearCOGS", "Downtobid", "Gem", "Newtrul", "Indio", "Bestow")), why)
         # 0.2.74 refused a name after a role, which 0.2.73 opened.
         for name, note in (("Kettle", "Kettle's CEO, Nate Kugland, said the company will double its sales team in 2026."),
                            ("Corgi", "Corgi's founders, Emily Yuan and Nico Laqua, raised $108M in 2026.")):

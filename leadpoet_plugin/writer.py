@@ -290,6 +290,9 @@ def _heading_case(line: str, company: str, scan: Scan) -> bool:
 def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dict], int]:
     """Return the lines that passed and how many were thrown out."""
     entries = raw.get("lines") if raw and isinstance(raw.get("lines"), list) else []
+    if scan.pages and scan.pages[0].lang and not scan.pages[0].lang.startswith("en"):
+        # Seen live, run 44: an Italian site gave "Indio has 80+ Progetti completati." The emails are in English.
+        return [], len(entries)
     kept: list[dict] = []
     dropped = 0
     for entry in entries:
@@ -422,8 +425,10 @@ def _subject(words: list[str], at: int) -> list[str] | None:
         if word in _OWN_PRODUCTS or word in _OWN_PARTS or word in _THIRD_PARTIES:
             continue
         hyphened = end > at and word in _PARTICIPLES  # "Dallas-based", "AI-powered" describe; they don't act.
-        if (word in _VERBS or (word.endswith("ed") and not hyphened)
-                or (len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "'s", "ers", "ors", "ants", "ents", "ists", "ees")))):
+        modifies = words[end + 1:end + 2] and (words[end + 1] in _OWN_PRODUCTS or words[end + 1] in _OWN_PARTS)
+        plural = (len(word) > 3 and word.endswith("s") and not modifies  # "Smart Forms platform" (run 44) names one thing
+                  and not word.endswith(("ss", "'s", "ers", "ors", "ants", "ents", "ists", "ees", "ics")))  # "telematics"
+        if word in _VERBS or (word.endswith("ed") and not hyphened) or plural:
             return words[at:end] if end > at else None
     return None
 
@@ -439,7 +444,7 @@ def _owned(words: list[str], at: int) -> bool:
     if at < len(words) and words[at] in ("customer", "user", "client") and words[at + 1:at + 2] in (["base"], ["count"]):
         return True
     if (_THIRD_PARTIES.intersection(words[at:]) or {"ex", "former", "which", "who"}.intersection(words[at:])
-            or any("'" in word for word in words[at:at + 4])):  # "cofounder left to start a rival"
+            or any(word.endswith("'s") for word in words[at:at + 4])):  # Not "O'Banion" (run 44).
         return False
     subject = _subject(words, at)
     if not subject:
