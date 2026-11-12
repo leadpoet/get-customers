@@ -1773,16 +1773,19 @@ class SignalOpenerTests(unittest.TestCase):
                 ("CityDetect", "https://www.citydetect.com", "CityDetect's sales team grew 40% in H1 2026.",  # Run 29.
                  "CityDetect's sales team grew 40% in H1 2026."),
                 ("Ashby", "https://www.ashbyhq.com", "Ashby's CEO said in October 2026 that the company will double its sales team.",
-                 "Ashby's CEO said in October 2026 that the company will double its sales team.")):
+                 "Ashby's CEO said in October 2026 that the company will double its sales team."),
+                ("Zuma", "https://www.getzuma.com", "Zuma's customer base grew 60% in 2026.", "Zuma's customer base grew 60% in 2026.")):  # Run 32.
             why, lines = opener(company, site, note + tail, line)
             self.assertEqual(lines, [line], company)
             self.assertNotIn("&amp;", why)
-            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper", "CityDetect", "Ashby")), why)
+            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper", "CityDetect", "Ashby", "Zuma")), why)
         # Run 28: the model's "has hired 2 AEs and 4 SDRs in Q3 2026" is not English; the note's own "hired" opens instead.
         _, lines = opener("Arable", "https://www.arable.com", "Arable hired 2 AEs and 4 SDRs in Q3 2026." + tail,
                           "Arable has hired 2 AEs and 4 SDRs in Q3 2026.")
         self.assertEqual(lines, ["Arable hired 2 AEs and 4 SDRs in Q3 2026."])
         # A possessive is theirs, so it still says which company the news is about, and still never reaches the one it names.
+        _, lines = opener("Zuma", "https://www.getzuma.com", "Zuma's customer Acme raised $5M." + tail, "Zuma's customer Acme raised $5M.")
+        self.assertEqual(lines, [])  # Acme's news, not Zuma's.
         self.assertEqual(signal_opener(SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps(
             {"line": "Ashby's CEO said the company will double its sales team."}))), {"company": "Ashby", "role": "CEO",
             "why": "Ashby's CEO said the company will double its sales team."})[0], [])
@@ -1956,7 +1959,7 @@ class SignalOpenerTests(unittest.TestCase):
                             ("RAVI SHAH", "Ravi"), ("anna kim", "Anna"), ("li wei", "Li"), ("JEAN-LUC MOREAU", "Jean-Luc"),
                             ("AJ SMITH", "AJ"), ("j. r. ruiz", "J. R."), ("DeShawn Ray", "DeShawn"), ("DR. AMY FOX", "Amy"),
                             # Run 24: a nickname in quotes is the name they go by.
-                            ('Robert "Bob" Lee', "Bob"), ("Katherine “Kate” Bell", "Kate"), ("Kristopher 'Kris' Hall", "Kris"), ("Liam O'Connor-Smith", "Liam"), ("William (Bill) Ng", "Bill"), ('ROBERT "BOB" LEE', "Bob"), ("Ana Silva (Sales)", "Ana"), ("Jane Doe (she/her)", "Jane")):
+                            ('Robert "Bob" Lee', "Bob"), ("Katherine “Kate” Bell", "Kate"), ("Kristopher 'Kris' Hall", "Kris"), ("Liam O'Connor-Smith", "Liam"), ("William (Bill) Ng", "Bill"), ("Ben (Benjamin) Hart", "Ben"), ("Siddharth (Sid) Rao", "Sid"), ('ROBERT "BOB" LEE', "Bob"), ("Ana Silva (Sales)", "Ana"), ("Jane Doe (she/her)", "Jane")):
             self.assertEqual(first_name({"name": name}), first, name)
 
     def test_the_first_sentence_survives_abbreviations(self):
@@ -2442,6 +2445,13 @@ class BreadthFindingsCase(unittest.TestCase):
         self.assertEqual(kept("We secure 10 billion every day.", "Infisical secures 10 billion every day."), [])
         self.assertEqual(len(kept("28,000+ GitHub stars", "Infisical has 28,000+ GitHub stars.")), 1)
         self.assertEqual(len(kept("We process $5 billion a year.", "Infisical processes $5 billion a year.")), 1)
+
+    def test_someones_life_story_is_no_line(self):
+        """Seen live, run 32: a VP of Sales would have opened on "Rhove's founder Nina Kubicek was born and raised in South Africa." """
+        quote = "Rhove’s founder Nina Kubicek was born and raised in South Africa"
+        scan = Scan("rhove.com", [Page("https://rhove.com/pages/about-us", "t", quote)])
+        raw = {"lines": [{"line": quote + ".", "quote": quote, "url": "https://rhove.com/pages/about-us"}]}
+        self.assertEqual(validate_lines(raw, scan, {"company": "Rhove"}), ([], 1))
 
     def test_your_own_words_keep_your_company_name(self):
         scan = Scan("your-company", [Page("https://a/", "", self.QUOTE + " Pinecrest Freight runs it.")])
