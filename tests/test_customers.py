@@ -2434,6 +2434,15 @@ class BreadthFindingsCase(unittest.TestCase):
         self.assertEqual(len(validate_lines({"lines": [{"line": quote + ".", "quote": quote, "url": "https://openly.com/"}]},
                                             scan, {"company": "Openly"})[0]), 1)
 
+    def test_a_count_of_nothing_is_no_line(self):
+        """Seen live, run 30: their page's "We secure 10 billion every day." opened as "Infisical secures 10 billion every day." """
+        def kept(quote, line, url="https://infisical.com/"):
+            scan = Scan("infisical.com", [Page(url, "t", quote)])
+            return validate_lines({"lines": [{"line": line, "quote": quote, "url": url}]}, scan, {"company": "Infisical"})[0]
+        self.assertEqual(kept("We secure 10 billion every day.", "Infisical secures 10 billion every day."), [])
+        self.assertEqual(len(kept("28,000+ GitHub stars", "Infisical has 28,000+ GitHub stars.")), 1)
+        self.assertEqual(len(kept("We process $5 billion a year.", "Infisical processes $5 billion a year.")), 1)
+
     def test_your_own_words_keep_your_company_name(self):
         scan = Scan("your-company", [Page("https://a/", "", self.QUOTE + " Pinecrest Freight runs it.")])
         self.assertEqual(validate_brief(self.raw(product_name="Pinecrest Freight"), scan)["product_name"], "Pinecrest Freight")

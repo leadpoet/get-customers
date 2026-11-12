@@ -268,6 +268,11 @@ def _names_only(quote: str) -> bool:
             and all(word[:1].isupper() or word[:1].isdigit() for word in words))
 
 
+# "Infisical secures 10 billion every day" counts nothing a reader can name, seen live in run 30. Money still counts.
+_BARE_COUNT = re.compile(r"(?<![$€£\d.,])\b\d[\d,.]*(?:\+|\s*(?:k|m|bn|thousand|million|billion|trillion)\b\+?)"
+                         r"(?=\s+(?:every|each|per|a|an|daily|weekly|monthly|yearly|annually|today|so far|and counting)\b|\s*[.!]?$)", re.IGNORECASE)
+
+
 def _heading_case(line: str, company: str, scan: Scan) -> bool:
     """A heading copied into a sentence keeps its capitals: "Openly has Home Insurance in 24 States and Growing", seen
     live in run 29. A capital is a heading's, not a name's, when their own pages also write that word in lowercase."""
@@ -292,6 +297,7 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
         good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _RESULT_TILE.match(quote) and not _names_only(quote) and not _quote_names_another(quote, str(person.get("company") or "")) and not _HAS_PASSIVE.search(line) and not _SELF_PRAISE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
                 and not _NO_SUBJECT_OPENING.match(line) and not _DANGLING.search(line)
                 and not _heading_case(line, str(person.get("company") or ""), scan)
+                and not _BARE_COUNT.search(line)
                 and quote_is_on_page(scan, url, quote) and line_is_supported(line, quote, person)
                 and not _someone_else_speaks(quote, url, str(person.get("company") or ""), scan)
                 and all(other["quote"] != quote for other in kept))
