@@ -44,6 +44,8 @@ OWN_WORDS = "your own description"
 MAX_OWN_WORDS = 6000
 MAX_BUYER_NOTE = 300
 _OTHER_BUYER = "Selling to someone else? Say who: /customers buyer <who buys>"
+# Once they have named the buyer, the card holds one kind. Naming three keeps the first, and this says why.
+_ONE_BUYER = "Each search is for one kind of buyer. To change it: /customers buyer <who buys>"
 MAX_SIGNATURE_CHARS = 1000
 _PASTE_INSTEAD = "No problem. Paste a few sentences about what you sell: /customers about <your text>"
 _LOCK = "customers"
@@ -426,6 +428,9 @@ class Customers:
                    "created_at": self.now(), "typed": re.sub(r"^https?://(www\.)?", "", source).split("/")[0].lower()}
         if scan.domain != "your-company":
             created["source"] = source  # The page they sent, so it can be read again.
+        if note and job:  # The same search with another buyer, so what they already gave it stays.
+            created["buyer_named"] = True
+            created["voice_sample"] = job.get("voice_sample", "")
         if job and job["stage"] not in _SETTLED:
             self._park(job)
             # A search still waiting on a key or credits has not started, so nothing is running yet.
@@ -1141,7 +1146,8 @@ class Customers:
     def _stage_text(self, job: dict) -> str:
         stage = job["stage"]
         if stage == "scanned":
-            fix = "" if getattr(self.api, "demo", False) or job["brief"].get("domain") == "your-company" else _OTHER_BUYER + "\n\n"
+            hidden = getattr(self.api, "demo", False) or job["brief"].get("domain") == "your-company"
+            fix = "" if hidden else (_ONE_BUYER if job.get("buyer_named") else _OTHER_BUYER) + "\n\n"
             return briefs.card(job["brief"]) + "\n\n" + fix + self._offer(job)
         if stage == "needs_key" and self.api is not None:
             try:  # Say so now if the new key won't work, rather than after they confirm.

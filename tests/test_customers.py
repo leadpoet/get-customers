@@ -1022,6 +1022,16 @@ class ProofCase(unittest.TestCase):
             (_, html), _ = self.reader(packed, {"Content-Type": "text/html", "Content-Encoding": encoding})
             self.assertIn("Experiment tracking", html)
 
+    def test_a_missing_page_points_to_the_home_page_as_they_would_type_it(self):  # tebra.com/solutions said "www.tebra.com".
+        import urllib.error
+        from leadpoet_plugin.website import SiteError, fetch
+        class Opener:
+            def open(self, request, timeout):
+                raise urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+        with self.assertRaises(SiteError) as raised:
+            fetch("https://www.a.example/solutions", opener=Opener(), public=lambda _: True)
+        self.assertEqual(raised.exception.args[0], "That site answered with an error (404). Try the home page: /customers a.example")
+
     def test_a_page_packed_in_a_way_it_cannot_open_is_a_plain_error(self):
         from leadpoet_plugin.website import SiteError
         with self.assertRaises(SiteError):
@@ -2065,6 +2075,16 @@ class BuyerCorrectionCase(Case):
         self.assertEqual(self.customers._parked(), [])  # It takes the old card's place, not a place beside it.
         self.assertIn("isn't the one", self.customers.handle("go", old))  # The old card's code spends nothing.
         self.assertFalse(self.api.requests)
+
+    def test_a_new_buyer_keeps_the_voice_and_says_a_search_has_one_buyer(self):
+        """Ntiva with "law firms, dentists, and car dealerships" came back as law firms alone, and a voice pasted before it was lost."""
+        voice = "I write short. No fluff, no exclamation marks. One idea per email and a plain ask."
+        self.assertIn("Got it", self.customers.handle("voice", voice))
+        text = self.customers.handle("buyer", self.WHO)
+        self.assertEqual(self.customers.job()["voice_sample"], voice)
+        self.assertIn("Each search is for one kind of buyer. To change it: /customers buyer <who buys>\n\nNext, find", text)
+        self.assertNotIn("Selling to someone else?", text)
+        self.assertIn("Each search is for one kind of buyer.", self.customers.handle("", ""))
 
     def test_it_works_until_leadpoet_has_been_asked(self):
         self.customers = Customers(None, self.store, self.customers.llm, demo_fetch)

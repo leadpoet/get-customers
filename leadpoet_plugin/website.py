@@ -370,7 +370,7 @@ def fetch(url: str, *, opener: Any = _OPENER, public: Any = is_public_host) -> t
                 raise SiteError("That site doesn't let automated readers in, so I can't read it.") from None
             if error.code == 429:
                 raise SiteError("That site asked me to slow down, so I stopped.") from None
-            home = f" Try the home page: /customers {host}" if error.code == 404 and parsed.path not in ("", "/") else ""
+            home = f" Try the home page: /customers {host.removeprefix('www.')}" if error.code == 404 and parsed.path not in ("", "/") else ""
             raise SiteError(f"That site answered with an error ({error.code}).{home}") from None
         except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError, ValueError):
             raise SiteError("Couldn't reach that website.") from None
