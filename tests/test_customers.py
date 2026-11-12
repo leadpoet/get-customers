@@ -1687,6 +1687,20 @@ class SignalOpenerTests(unittest.TestCase):
         self.assertEqual(opener("Acme", "Acme Communications hired a CRO."), [])
         self.assertEqual(opener("Linear", "Linear, Remote and Notion switched to Acme."), [])
 
+    def test_a_signal_about_the_recipient_is_not_read_back_to_them(self):
+        """Seen live: Lee Ann Ford-Harris's own email opened "Pod Foods hired Lee Ann Ford-Harris as Chief Revenue Officer"."""
+        from leadpoet_plugin.writer import signal_opener
+        def opener(name, sentence):
+            llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": sentence})))
+            return [row["line"] for row in signal_opener(llm, {"company": "Pod Foods", "name": name, "why": sentence})[0]]
+        hired = "Pod Foods hired Lee Ann Ford-Harris as Chief Revenue Officer in October 2026."
+        self.assertEqual(opener("Lee Ann Ford-Harris", hired), [])
+        self.assertEqual(opener("Lee Ford-Harris", hired), [])
+        # Someone else's news, or a namesake word, still opens.
+        self.assertEqual(opener("Xena Holt", hired), [hired])
+        self.assertEqual(opener("Ann Ford", hired), [hired])
+        self.assertEqual(opener("Cher", "Pod Foods hired Cher as CRO in May."), ["Pod Foods hired Cher as CRO in May."])
+
     def test_the_opener_stops_before_leadpoets_reading_of_the_event(self):
         """30% of real openers told the prospect "indicating a need to expand their sales efforts"."""
         lines, _ = self.line("Ramp is hiring two SDRs.", why="Ramp is hiring two SDRs, indicating a potential push into outbound. More.")

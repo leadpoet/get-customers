@@ -360,6 +360,13 @@ def _site_carries(site: Any, word: str) -> bool:
     return len(word) >= 3 and any(label in names for label in host.lower().split(".")[:-1])
 
 
+def _names_them(text: str, name: Any) -> bool:
+    """The note tells their story in the third person. Read back to them, it sounds like a form letter."""
+    parts = str(name or "").split()
+    word = lambda part: re.search(rf"(?<![\w-]){re.escape(part.strip(',.'))}(?![\w-])", text, re.IGNORECASE)
+    return len(parts) > 1 and bool(word(parts[0]) and word(parts[-1]))
+
+
 def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     """The buying signal Leadpoet found, as the first line. The note is the source, so the line may only restate it.
 
@@ -368,6 +375,8 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     note = re.sub(r"\s+", " ", str(person.get("why") or "")).strip()
     signal = _sentence(_INFERENCE.split(_LEADING_WHEN.sub("", lead_sentence(note), count=1), 1)[0].rstrip(" ,;"))
     if not signal or _HEDGE.search(_MONTH_MAY.sub("", signal)) or _DOUBT.search(note):  # A guess is not a reason to write.
+        return [], 0
+    if _names_them(signal, person.get("name")):  # Seen live: her own email opened "Pod Foods hired Lee Ann Ford-Harris".
         return [], 0
     record = str(person.get("company") or "")
     # Notes write the full record ("Alco Building Solutions (ABS) is") or drop its tagline ("AG Adjustments is" for AG
