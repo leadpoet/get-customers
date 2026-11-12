@@ -1916,7 +1916,9 @@ class SignalOpenerTests(unittest.TestCase):
                             ("Drew Lane", "Drew"), ("Sir", "Sir"),
                             # Seen live, run 23: a list typed in one case greeted "Hi RAVI," and "Hi anna,".
                             ("RAVI SHAH", "Ravi"), ("anna kim", "Anna"), ("li wei", "Li"), ("JEAN-LUC MOREAU", "Jean-Luc"),
-                            ("AJ SMITH", "AJ"), ("j. r. ruiz", "J. R."), ("DeShawn Ray", "DeShawn"), ("DR. AMY FOX", "Amy")):
+                            ("AJ SMITH", "AJ"), ("j. r. ruiz", "J. R."), ("DeShawn Ray", "DeShawn"), ("DR. AMY FOX", "Amy"),
+                            # Run 24: a nickname in quotes is the name they go by.
+                            ('Robert "Bob" Lee', "Bob"), ("Katherine “Kate” Bell", "Kate"), ("William (Bill) Ng", "Bill"), ('ROBERT "BOB" LEE', "Bob"), ("Ana Silva (Sales)", "Ana"), ("Jane Doe (she/her)", "Jane")):
             self.assertEqual(first_name({"name": name}), first, name)
 
     def test_the_first_sentence_survives_abbreviations(self):

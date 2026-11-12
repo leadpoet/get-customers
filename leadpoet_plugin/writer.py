@@ -801,6 +801,10 @@ def first_name(person: dict) -> str:
     parts = str(person.get("name") or "").split()
     if _PLACEHOLDER.search(" ".join(parts)):  # "[name]" in the shared preview is a slot, not a name.
         return " ".join(parts)
+    # Run 24: Robert "Bob" Lee goes by Bob. Only right after the first name, before a surname: not "Ana Silva (Sales)".
+    nickname = len(parts) > 2 and re.fullmatch(r"[\"“(]([^\W\d_][\w'’.-]*)[\"”)],?", parts[1])
+    if nickname:
+        parts = [nickname.group(1)]
     while len(parts) > 1 and _HONORIFIC.fullmatch(parts[0]):
         parts = parts[1:]
     initials = 0
