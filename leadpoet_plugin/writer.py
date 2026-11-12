@@ -33,7 +33,8 @@ _SELLER_WORDS = re.compile(r"\b(?:we|our|us|ours)\b", re.IGNORECASE)
 # After an uncited If, only the reader's situation can follow. "these checks run without you" is a product claim with no source.
 _READER_TAIL = re.compile(r"(?:that|your|you|\{company\})\b(?!\s*(?:can|could|get|will|would|save|gain|stop|never)\b)(?!'ll)", re.IGNORECASE)
 _FIRST_PERSON = re.compile(r"\bI\b|\b[Mm]y\b|\b[Mm]e\b|\b[Ww]e\b|\b[Oo]urs?\b|\bus\b")  # "US" the country is fine.
-_MARKETING_VOICE = re.compile(r"\b(?:you|your|yours|we|our|ours|us)\b")  # Lowercase only, so "US" the country is fine.
+# Lowercase only, so "US" the country is fine. Seen live, run 40: "a pay-as-you-go pricing plan" is a word of its own, not ad copy.
+_MARKETING_VOICE = re.compile(r"(?<![\w-])(?:you|your|yours|we|our|ours|us)(?![\w-])")
 # A person can only be offered what the site really has, or a reply and a short call.
 _OFFERS = frozenset("sample samples demo demos guide guides report reports trial trials audit audits list lists sheet sheets "
                     "deck decks pilot pilots video videos overview breakdown walkthrough study studies template templates".split())

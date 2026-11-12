@@ -1787,11 +1787,13 @@ class SignalOpenerTests(unittest.TestCase):
                 ("Valyant AI", "https://valyant.ai", "Valyant AI's voice ordering went live at 400 Carl's Jr. locations.",
                  "Valyant AI's voice ordering went live at 400 Carl's Jr. locations."),  # Run 39.
                 ("ClearCOGS", "https://www.clearcogs.com", "ClearCOGS launched a free plan for single-location restaurants.",
-                 "ClearCOGS launched a free plan for single-location restaurants.")):  # Run 39.
+                 "ClearCOGS launched a free plan for single-location restaurants."),  # Run 39.
+                ("Downtobid", "https://downtobid.com", "Downtobid launched a pay-as-you-go pricing plan in October 2026.",
+                 "Downtobid launched a pay-as-you-go pricing plan in October 2026.")):  # Run 40.
             why, lines = opener(company, site, note + tail, line)
             self.assertEqual(lines, [line], company)
             self.assertNotIn("&amp;", why)
-            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper", "CityDetect", "Ashby", "Zuma", "Persefoni", "Vetcove", "Kleer", "Archy", "Popmenu", "Valyant", "ClearCOGS")), why)
+            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper", "CityDetect", "Ashby", "Zuma", "Persefoni", "Vetcove", "Kleer", "Archy", "Popmenu", "Valyant", "ClearCOGS", "Downtobid")), why)
         # Run 28: the model's "has hired 2 AEs and 4 SDRs in Q3 2026" is not English; the note's own "hired" opens instead.
         _, lines = opener("Arable", "https://www.arable.com", "Arable hired 2 AEs and 4 SDRs in Q3 2026." + tail,
                           "Arable has hired 2 AEs and 4 SDRs in Q3 2026.")
