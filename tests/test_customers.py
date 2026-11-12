@@ -1922,6 +1922,11 @@ class SignalOpenerTests(unittest.TestCase):
     def test_the_first_sentence_survives_abbreviations(self):
         from leadpoet_plugin.writer import lead_sentence, short_note
         self.assertEqual(lead_sentence("Acme Inc. opened a U.S. office in May. It hires now."), "Acme Inc. opened a U.S. office in May.")
+        # Seen live, run 24: the closing disclaimer after "U.K." was shown as the reason, and the email lost its line.
+        self.assertEqual(lead_sentence("Landis opened an office in the U.K. The evidence confirms it."), "Landis opened an office in the U.K.")
+        self.assertEqual(lead_sentence("Acme opened a U.S. office. It hires."), "Acme opened a U.S. office.")
+        self.assertEqual(lead_sentence("Acme Inc. The Times said so."), "Acme Inc.")
+        self.assertEqual(lead_sentence("Acme Co. Ltd. hired a CRO. More."), "Acme Co. Ltd. hired a CRO.")
         self.assertEqual(lead_sentence("Raised $9.1M led by J. Smith. More here."), "Raised $9.1M led by J. Smith.")
         # Seen live: "Mutiny named Priya Shah Head of Sales on Oct." went out as the whole line.
         self.assertEqual(lead_sentence("Acme named a CRO on Oct. 6, 2026, and is hiring. More."), "Acme named a CRO on Oct. 6, 2026, and is hiring.")

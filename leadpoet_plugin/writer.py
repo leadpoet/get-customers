@@ -313,6 +313,7 @@ _LEAD_INS = frozenset({"is", "was", "has", "had", "have", "are", "were"})
 _DOUBT = re.compile(r"\b(?:thin|unconfirmed|unverified|unclear|(?:does|do|did) not confirm|not confirmed|no longer)\b", re.IGNORECASE)
 _ABBREVIATIONS = frozenset({"inc", "co", "corp", "ltd", "llc", "st", "mr", "ms", "mrs", "dr", "jr", "sr", "vs", "no", "approx",
                             "e.g", "i.e", "u.s", "u.k", "a.m", "p.m"})
+_SENTENCE_START = re.compile(r"\s+(?:The|This|That|These|Those|It|Its|They|Their|There|We|Our|He|She|His|Her|A|An)\b")
 _MONTHS = frozenset({"jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec"})
 # "In October 2026, Kixie hired" puts the date first. The event after it is the signal; the note keeps the date.
 _LEADING_WHEN = re.compile(r"(?:In|On|During|Last|This|Earlier this|Early|Late|Mid)\b[^,]{1,30}?"
@@ -336,7 +337,8 @@ def lead_sentence(note: str) -> str:
     for stop in re.finditer(r"[.!?](?=\s+[A-Z0-9\"“'(])", text):
         word = re.findall(r"[\w.]+$", text[:stop.start()])
         token = word[0].lower() if word else ""
-        if token in _ABBREVIATIONS:  # "Acme Inc. hired" goes on.
+        # "Acme Inc. hired" goes on; "an office in the U.K. The evidence" ends (seen live, run 24: the disclaimer was the reason).
+        if token in _ABBREVIATIONS and not _SENTENCE_START.match(text[stop.end():]):
             continue
         # "J. Smith" goes on; "Series B." ends the sentence (seen live, run 21: the closing disclaimer was shown as the reason).
         if len(token) == 1 and not re.search(r"\b(?:series|round|class|phase|tier|type|plan|grade|stage)\s+\w$", text[:stop.start()], re.IGNORECASE):
