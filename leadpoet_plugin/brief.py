@@ -88,7 +88,8 @@ _SYSTEM = (
     'or no to one company, such as "US staffing agencies with 10 to 200 employees that place light industrial workers", '
     'never a generic function such as "customer-service businesses". When the site serves several kinds of customer, '
     'name the one the home page speaks to first; a case study is proof, not the buyer. No hedges such as likely, may or appears), '
-    '"roles" (up to 5 job titles, at those organizations, of the people who own the budget for this product or sign for it, '
+    '"roles" (up to 5 job titles in English, as they read on a LinkedIn profile and never a tax or legal status, '
+    'at those organizations, of the people who own the budget for this product or sign for it, '
     'plus at most one hands-on user. Never the titles that those organizations sell to), '
     '"signals" (see the rules below), '
     '"company_sizes" (list, chosen only from: ' + "; ".join(SIZE_LABELS) + ", and only when the site makes size clear), "
@@ -127,6 +128,11 @@ def _strings(value: Any, limit: int) -> list[str]:
         return []
     cleaned = [item.strip()[:200] for item in value if isinstance(item, str) and item.strip()]
     return list(dict.fromkeys(cleaned))[:limit]
+
+
+def _sentence(text: str) -> str:
+    """A model ends about one sentence in five without its full stop."""
+    return text if not text or text[-1] in ".!?" else text + "."
 
 
 def _roles(value: Any) -> list[str]:
@@ -214,7 +220,7 @@ def validate_brief(raw: dict | None, scan: Scan, refused: list[str] | None = Non
         "summary": _summary(raw.get("summary")),
         "facts": facts[:MAX_FACTS],
         "buyers": _roles(raw.get("roles")),
-        "company_fit": _text(raw.get("buyer_description"), 500).replace("—", ", "),
+        "company_fit": _sentence(_text(raw.get("buyer_description"), 500).replace("—", ", ")),
         "industries": [],
         "company_sizes": [size for size in _strings(raw.get("company_sizes"), 8) if size in SIZE_LABELS],
         "countries": _strings(raw.get("countries"), 10),
@@ -289,7 +295,7 @@ def _refine(llm: Any, scan: Scan, brief: dict, note: str = "") -> dict:
         return brief
     raw = parse_json_object(getattr(result, "text", None)) or {}
     better = dict(brief)
-    fit_text = _text(raw.get("buyer_description"), 500).replace("—", ", ")
+    fit_text = _sentence(_text(raw.get("buyer_description"), 500).replace("—", ", "))
     roles, signals = _roles(raw.get("roles")), _signals(raw.get("signals"), brief["product_name"])
     # The editor's rewrite of a source can fail the checks. The draft's checked signal for that source then stands;
     # a source the editor left out stays out.

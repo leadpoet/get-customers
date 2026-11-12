@@ -2073,12 +2073,29 @@ class BuyerCorrectionCase(Case):
         self.assertIn("US banks that staff engineering", self.customers.handle("buyer", self.WHO))
         self.assertEqual(self.customers.job()["stage"], "scanned")
 
+    def test_a_free_search_handed_to_the_app_can_still_change_its_buyer(self):
+        self.api.credits = lambda: {"credits_remaining": 0, "plan": "free"}
+        self.api.contact_settings = lambda: {"included_contacts_per_company": 1, "pricing": {"credits_per_company": 10}}
+        self.text = self.customers.handle("", "")
+        self.assertIn("paste", self.customers.handle("go", self.code("go")))
+        self.assertEqual(self.customers.job()["stage"], "needs_credits")
+        self.assertIn("US banks that staff engineering", self.customers.handle("buyer", self.WHO))
+        self.assertEqual(self.customers.job()["stage"], "scanned")
+        self.assertFalse(self.api.requests)
+
+    def test_the_buyer_reads_as_a_sentence(self):
+        """About one real card in five ended "Who buys" without its full stop."""
+        brief = self.customers.job()["brief"]
+        self.assertTrue(brief["company_fit"].endswith("."))
+        from leadpoet_plugin.brief import _sentence
+        self.assertEqual([_sentence(text) for text in ("US law firms", "US law firms.", "Who?", "")], ["US law firms.", "US law firms.", "Who?", ""])
+
     def test_a_search_under_way_keeps_its_buyer(self):
         self.customers.handle("go", self.code("go"))
         before = self.customers.job()
         text = self.customers.handle("buyer", self.WHO)
-        self.assertIn("already on its way", text)
-        self.assertIn("/customers reset", text)
+        self.assertIn("already went to Leadpoet", text)
+        self.assertNotIn("/customers reset", text)  # Dropping it would throw away what was paid for.
         self.assertEqual(self.customers.job(), before)
         self.assertEqual(len(self.api.requests), 1)
 

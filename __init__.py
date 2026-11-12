@@ -13,7 +13,7 @@ if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
 from leadpoet_plugin.api import ApiError, LeadpoetApi  # noqa: E402
-from leadpoet_plugin.customers import ADD_KEY, HELP as CUSTOMERS_HELP, KEY_STEPS, Customers, trouble  # noqa: E402
+from leadpoet_plugin.customers import ADD_KEY, HELP as CUSTOMERS_HELP, KEY_STEPS, Customers, same_site, trouble  # noqa: E402
 from leadpoet_plugin.customers_demo import SELLER, DemoCustomersApi, DemoLlm, demo_fetch  # noqa: E402
 from leadpoet_plugin.demo import DemoApi  # noqa: E402
 from leadpoet_plugin.desk import Desk  # noqa: E402
@@ -180,7 +180,9 @@ class Plugin:
             intro = ("Demo mode: this is your real website, read by your model. "
                      f"The prospects are made up, so nothing can reach anyone.{kept}\n\n")
             self._store("demo").put("own_site", "1")
-            return intro + Customers(self._demo_customers, self._store("demo"), llm, say=self._say()).start(argument)
+            demo = Customers(self._demo_customers, self._store("demo"), llm, say=self._say())
+            mine = Customers(None, self._store("live")).job()
+            return intro + (demo.preview_of(mine) if mine and same_site(mine, argument) else demo.start(argument))
         intro = f"Demo mode: every company and person here is made up, so nothing can reach anyone.{kept}\n\n"
         return intro + self.customers().start(SELLER)
 

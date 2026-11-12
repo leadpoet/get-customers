@@ -563,6 +563,28 @@ class PluginCase(unittest.TestCase):
         plugin.command("demo", platform="telegram", source=self.dm())
         self.assertIn("The demo keeps the buyer", plugin.customers_command("Buyer banks in the US", platform="telegram", source=self.dm()))
 
+    def test_the_demo_of_your_own_search_shows_its_card_not_a_second_reading(self):
+        """Ntiva's real search was for US law firms. Its preview read the site again and came back with government contractors."""
+        plugin = self.make()
+        brief = {"product_name": "Ntiva", "domain": "ntiva.example", "summary": "Ntiva runs IT for firms.", "buyers": ["Managing Partner"],
+                 "company_fit": "US law firms with 20 to 200 staff.", "company_sizes": [], "countries": [], "exclude": [],
+                 "signals": [], "facts": [{"text": "Ntiva runs IT.", "said_by": "seller", "quote": "Ntiva runs IT.", "url": "https://ntiva.example/"}]}
+        real = {"id": "abcd12345678", "stage": "finding", "people": [], "emails": None, "created_at": 1.0, "brief": brief,
+                "typed": "ntiva.example", "voice_sample": "I write short. " * 5}
+        plugin._store("live").put("customers_job", json.dumps(real))
+        with mock.patch.object(self.entry, "get_key", return_value=""):
+            text = plugin.customers_command("demo https://www.ntiva.example/", platform="telegram", source=self.dm())
+            self.assertIn("US law firms with 20 to 200 staff.", text)
+            self.assertEqual(plugin.ctx.llm.calls, [])  # Nothing was read or written again.
+            demo = json.loads(plugin._store("demo").get("customers_job"))
+            self.assertEqual((demo["stage"], demo["voice_sample"]), ("scanned", real["voice_sample"]))
+            code = text.split("/customers go ")[1].split()[0]
+            self.assertIn("The demo skips the wait", plugin.customers_command(f"go {code}", platform="telegram", source=self.dm()))
+            plugin.customers_command("demo off", platform="telegram", source=self.dm())
+            # A demo code typed after leaving the demo spends nothing on the real search.
+            self.assertEqual(json.loads(plugin._store("live").get("customers_job"))["stage"], "finding")
+            self.assertNotEqual(plugin.customers()._brief_code(real), code)
+
     def test_demo_on_your_own_site_has_prospects_that_fit_your_search(self):
         from leadpoet_plugin.brief import signals_text
         from leadpoet_plugin.customers import account_note

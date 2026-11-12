@@ -364,6 +364,13 @@ class Customers:
             return f"{error.args[0]}\n\n{_PASTE_INSTEAD}"
         return self._start_from(scan, url, job, "Try a page that says what you sell: /customers yoursite.com/product", note)
 
+    def preview_of(self, real: dict) -> str:
+        """The demo of a site they already have a search for shows that search's card, so the preview is of the same buyer."""
+        # A different id, so the demo's code can never be the real search's code.
+        self.save({"id": "demo-" + real["id"], "stage": "scanned", "brief": real["brief"], "people": [], "emails": None,
+                   "voice_sample": real.get("voice_sample", ""), "created_at": self.now(), "typed": real.get("typed", "")})
+        return self._next(self.job())
+
     def _buyer(self, who: str) -> str:
         """The card can name a buyer the founder doesn't sell to. They say who does buy, and the site is read again."""
         job = self.job()
@@ -372,9 +379,9 @@ class Customers:
             return "The demo keeps the buyer on its card. On your own search, /customers buyer <who buys> changes it."
         if not job or job["stage"] in ("done", "failed", "live"):
             return "Start with /customers yoursite.com. If the card names the wrong buyer, say who buys then."
-        if job["stage"] not in ("scanned", "needs_key") or job.get("find_body"):
-            return ("This search is already on its way with the buyer on its card.\n"
-                    "To change who buys, drop it and start again: /customers reset")
+        if job["stage"] not in ("scanned", "needs_key", "needs_credits") or job.get("find_body"):
+            return ("This search already went to Leadpoet with the buyer on its card, so that buyer stays.\n"
+                    "On your next search, name another when its card shows.")
         if not job.get("typed") or (job.get("brief") or {}).get("domain") == "your-company":
             return "Add who buys to your description and send it again: /customers about <your text>"
         if len(who.split()) < 2:
@@ -1359,6 +1366,15 @@ class Customers:
 def _plain(code: Any) -> str:
     """legal_entity and booking_link_missing are Leadpoet's names, not the user's."""
     return re.sub(r"_missing$", "", str(code)).replace("_", " ")
+
+
+def same_site(job: dict, typed: str) -> bool:
+    """Whether the site someone typed is the one this search is for."""
+    try:
+        host = re.sub(r"^https?://(www\.)?", "", normalize_site(typed_site(typed))).split("/")[0].lower()
+    except SiteError:
+        return False
+    return host in (job.get("typed"), str((job.get("brief") or {}).get("domain") or "").lower())
 
 
 def _site(job: dict) -> str:
