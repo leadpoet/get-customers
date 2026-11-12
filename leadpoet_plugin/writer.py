@@ -40,8 +40,12 @@ _OFFERS = frozenset("sample samples demo demos guide guides report reports trial
 _THEIR_OWN = re.compile(r"\bon your lists?\b", re.IGNORECASE)  # "Is this on your list?" is the reader's list, not something offered.
 _SUBJECT_WORDS = frozenset("quick question thought idea note last follow following next".split())
 _NO_SUBJECT_OPENING = re.compile(r"(?:they|their|it|its|he|she|we|our|this|these|those)\b", re.IGNORECASE)
+# Seen live, run 25: a case-study headline became "Lithic helped this neobank launch a hybrid credit card", which names no one.
+_DANGLING = re.compile(r"\b(?:this|these|those)\s+(?!(?:year|quarter|month|week|season|spring|summer|fall|autumn|winter)\b)[a-z]", re.IGNORECASE)
 # True or not, these don't belong in a cold opener.
-_SENSITIVE = re.compile(r"\b(sued|lawsuits?|litigation|fraud\w*|bankrupt\w*|layoffs?|laid off|fired|scandals?|breach\w*|"
+# Fraud and breaches are what Alloy, Sardine and Lithic sell against. Seen live, run 25: "launched a new fraud product" opened no email.
+_GUARD = r"(?<!anti-)(?!\w+\s+(?:prevention|detection|tools?|products?|platform|software|solutions?|risk|controls?|monitoring|fighting|protection|models?|engine|teams?)\b)"
+_SENSITIVE = re.compile(r"\b(sued|lawsuits?|litigation|" + _GUARD + r"fraud\w*|bankrupt\w*|layoffs?|laid off|fired|scandals?|" + _GUARD + r"breach\w*|"
                         r"investigat\w*|indict\w*|arrest\w*|convict\w*|divorce\w*|death|died|illness|cancer|agreed orders?|consent decrees?|"
                         r"settle\w*|violat\w*|penalt\w*|fined|sanction\w*|probation|receivership|corrective action|audit findings?)\b", re.IGNORECASE)
 _SPELLED_NUMBERS = frozenset(
@@ -277,7 +281,7 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
         line = _BADGE_CASE.sub(lambda badge: badge.group().lower(), line)
         # A stat tile's meaning is in the label beside it: "5000+ Salespeople" counts their users, not their staff.
         good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _RESULT_TILE.match(quote) and not _names_only(quote) and not _quote_names_another(quote, str(person.get("company") or "")) and not _HAS_PASSIVE.search(line) and not _SELF_PRAISE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
-                and not _NO_SUBJECT_OPENING.match(line)
+                and not _NO_SUBJECT_OPENING.match(line) and not _DANGLING.search(line)
                 and quote_is_on_page(scan, url, quote) and line_is_supported(line, quote, person)
                 and not _someone_else_speaks(quote, url, str(person.get("company") or ""), scan)
                 and all(other["quote"] != quote for other in kept))

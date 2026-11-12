@@ -2362,6 +2362,27 @@ class BreadthFindingsCase(unittest.TestCase):
         from leadpoet_plugin.writer import _SENSITIVE
         self.assertTrue(_SENSITIVE.search("Austin ISD was released from the TEA Special Education Agreed Order."))
 
+    def test_a_fraud_product_is_what_they_sell_not_a_scandal(self):
+        """Seen live, run 25: Lithic's launch and Alloy's hiring notes opened no email because they named fraud."""
+        from leadpoet_plugin.writer import line_is_supported
+        for line in ("Lithic launched a new fraud product in November 2026 and is hiring SDRs to sell it.",
+                     "Alloy is hiring SDRs in New York who have sold fraud tools to banks.",
+                     "Sardine sells anti-fraud software to banks.", "Acme launched breach detection software in May."):
+            self.assertTrue(line_is_supported(line, line, {"company": line.split()[0]}), line)
+        for line in ("Acme was charged with fraud in May.", "Acme faces fraud charges.", "Acme disclosed a data breach in May."):
+            self.assertFalse(line_is_supported(line, line, {"company": "Acme"}), line)
+
+    def test_a_case_study_headline_without_its_customer_is_no_line(self):
+        """Seen live, run 25: "Lithic helped this neobank launch a hybrid credit card in 65 days" names no one."""
+        quote = "Lithic helped this neobank launch a hybrid credit card in 65 days"
+        scan = Scan("lithic.com", [Page("https://www.lithic.com/solutions/credit", "t", quote)])
+        raw = {"lines": [{"line": quote + ".", "quote": quote, "url": "https://www.lithic.com/solutions/credit"}]}
+        self.assertEqual(validate_lines(raw, scan, {"company": "Lithic"}), ([], 1))
+        quote = "Lithic issued 2 million cards this year"
+        scan = Scan("lithic.com", [Page("https://www.lithic.com/", "t", quote)])
+        self.assertEqual(len(validate_lines({"lines": [{"line": quote + ".", "quote": quote, "url": "https://www.lithic.com/"}]},
+                                            scan, {"company": "Lithic"})[0]), 1)
+
     def test_your_own_words_keep_your_company_name(self):
         scan = Scan("your-company", [Page("https://a/", "", self.QUOTE + " Pinecrest Freight runs it.")])
         self.assertEqual(validate_brief(self.raw(product_name="Pinecrest Freight"), scan)["product_name"], "Pinecrest Freight")
