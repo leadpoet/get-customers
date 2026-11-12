@@ -56,7 +56,7 @@ LATE_SECONDS = 3 * 86400  # Past the "1 to 2 days" someone was told, so silence 
 _SETTLED = ("scanned", "done", "failed", "live")
 _SLOW_DOWN = "Leadpoet asked me to slow down. I'll carry on at the next check."
 _NO_ANSWER = "Leadpoet didn't answer in time. Your approval is kept, and I'll carry on at the next check."
-_NO_MODEL = "Hermes hasn't given this plugin a model, so I can't read your site. Set a model in Hermes, then send it again."
+NO_MODEL = "Hermes hasn't given this plugin a model, so I can't read your site. Set a model in Hermes, then send it again."
 # Leadpoet may clear these by itself, so a later check tries again without bothering anyone.
 _TRY_APPROVAL_AGAIN = {"READY_CHECK_UNAVAILABLE", "AUTOMATIC_RETRY", "CONTACT_PAUSED", "CAMPAIGN_NOT_ACTIVE"}
 _REPLY_OPT_OUT = 'Don\'t want these? Reply "unsubscribe".'
@@ -78,7 +78,7 @@ HELP = """/customers yoursite.com: find your customers
 /customers open <site>: switch to another search
 /customers all: read every email, then approve them together
 /customers check: refresh now
-/customers demo: try the whole thing, no account needed
+/customers demo yoursite.com: preview it with made-up contacts, no account needed
 /customers reset: start over"""
 
 
@@ -344,7 +344,7 @@ class Customers:
         if refused:
             return refused
         if self.llm is None:
-            return _NO_MODEL
+            return NO_MODEL
         try:
             url = normalize_site(typed_site(site))
         except SiteError as error:
@@ -398,7 +398,7 @@ class Customers:
         if refused:
             return refused
         if self.llm is None:
-            return _NO_MODEL
+            return NO_MODEL
         if len(text) < 200:
             return "Paste a bit more: what you sell, who buys it, and any real numbers or customers.\n/customers about <your text>"
         self._progress("Reading what you wrote. This takes about 20 seconds.")
@@ -419,8 +419,7 @@ class Customers:
         brief = briefs.write_brief(self.llm, scan, note)
         if brief and brief.get("consumer"):
             return (f"{brief['product_name']} sells to consumers, so there are no companies to find for it.\n"
-                    "If companies buy from you too, say what you sell: /customers about <your text>\n"
-                    "Or see how it works first: /customers demo")
+                    "If companies buy from you too, say what you sell: /customers about <your text>")
         if brief is None:
             return f"I couldn't find enough there that I can prove. {tip}"
         created = {"id": code_for(source, str(self.now()))[:4] + hashlib.sha256(source.encode()).hexdigest()[:8],
@@ -1133,7 +1132,8 @@ class Customers:
     # What to show ----------------------------------------------------------------------------
     def _next(self, job: dict | None, refresh: bool = False) -> str:
         if not job:
-            return "Send your website to begin: /customers yoursite.com\nOr try it first: /customers demo"
+            return ("Send your website to begin: /customers yoursite.com\n"
+                    "Or preview it first with made-up contacts, no account needed: /customers demo yoursite.com")
         notes: list[str] = []
         if refresh and self.api is not None and job["stage"] in ("needs_credits", "finding", "reviewing", "launching", "live"):
             try:

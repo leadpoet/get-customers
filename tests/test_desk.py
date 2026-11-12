@@ -13,12 +13,14 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
 
 from leadpoet_plugin.api import ApiError, LeadpoetApi  # noqa: E402
 from leadpoet_plugin.demo import DemoApi  # noqa: E402
 from leadpoet_plugin.desk import Desk, clean_draft, draft_code  # noqa: E402
 from leadpoet_plugin.poll import run  # noqa: E402
 from leadpoet_plugin.store import Store  # noqa: E402
+import stock  # noqa: E402  The tests' made-up seller and its freight prospects.
 
 NOW = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
 
@@ -542,18 +544,78 @@ class PluginCase(unittest.TestCase):
         self.plugin = self.entry.Plugin(ctx, Path(self.folder.name))
         return self.plugin
 
+    def touring(self):
+        """A plugin whose model answers for the tests' made-up seller, so a demo can be walked without a real model."""
+        plugin = self.make()
+        plugin.ctx.llm = stock.DemoLlm()
+        return plugin
+
+    def tour(self, plugin):
+        return plugin.customers_command("demo sunnyday.example", platform="telegram", source=self.dm())
+
     def dm(self):
         return types.SimpleNamespace(chat_type="dm", user_id="1")
 
     def group(self, user="2"):
         return types.SimpleNamespace(chat_type="group", user_id=user)
 
-    def test_demo_on_your_own_site_is_not_signed_by_the_fictional_seller(self):
+    def test_what_ships_names_no_seller_and_no_trade(self):
+        """The preview is of the user's own company, so the made-up prospects must fit any of them."""
+        from leadpoet_plugin.website import SiteError
+        self.assertEqual([row["company"] for row in stock.SHIPPED_PEOPLE],
+                         ["Pinecrest Group", "Harbor Lane Partners", "Tallgrass Associates"])
+        self.assertFalse(any("icp_details" in row for row in stock.SHIPPED_PEOPLE))
+        self.assertEqual(len(stock.SHIPPED_PAGES), 3)
+        self.assertTrue(all(url.endswith(".example/") for url in stock.SHIPPED_PAGES))
+        shipped = " ".join(stock.SHIPPED_PAGES.values()) + json.dumps(stock.SHIPPED_PEOPLE)
+        for word in ("Sunnyday", "freight", "Freight", "courier", "dispatch"):
+            self.assertNotIn(word, shipped)
+        self.assertIn("Pinecrest Group", stock.demo_fetch("https://pinecrestgroup.example")[1])
+        with self.assertRaises(SiteError):  # A made-up address that isn't in the demo is never looked up for real.
+            stock.demo_fetch("https://nobody.example/")
         plugin = self.make()
         plugin.command("demo", platform="telegram", source=self.dm())
-        plugin._store("demo").put("own_site", "1")
-        sender = plugin.customers().api.profile()["profile"]["voice"]["sender_name"]
-        self.assertNotIn("Sunnyday", sender)
+        self.assertEqual(plugin.customers().api.profile()["profile"]["voice"]["sender_name"], "")
+
+    def test_the_demo_asks_for_a_site_when_there_is_no_search(self):
+        plugin = self.make()
+        said = plugin.customers_command("demo", platform="telegram", source=self.dm())
+        self.assertEqual(said, "Add your site to preview it with made-up contacts: /customers demo yoursite.com")
+        self.assertFalse(plugin.in_demo())
+        self.assertEqual(plugin.ctx.llm.calls, [])
+
+    def test_the_demo_with_no_site_previews_the_search_they_have(self):
+        plugin = self.make()
+        brief = {"product_name": "Ntiva", "domain": "ntiva.example", "summary": "Ntiva runs IT for firms.", "buyers": ["Managing Partner"],
+                 "company_fit": "US law firms with 20 to 200 staff.", "company_sizes": [], "countries": [], "exclude": [],
+                 "signals": [], "facts": [{"text": "Ntiva runs IT.", "said_by": "seller", "quote": "Ntiva runs IT.", "url": "https://ntiva.example/"}]}
+        real = {"id": "abcd12345678", "stage": "finding", "people": [], "emails": None, "created_at": 1.0, "brief": brief, "typed": "ntiva.example"}
+        plugin._store("live").put("customers_job", json.dumps(real))
+        with mock.patch.object(self.entry, "get_key", return_value=""):
+            said = plugin.customers_command("demo", platform="telegram", source=self.dm())
+        self.assertTrue(said.startswith("Demo mode: this is your own search. The prospects are made up, so nothing can reach anyone.\n"
+                                        "Your real search keeps running. Back to it any time: /customers demo off"), said)
+        self.assertIn("US law firms with 20 to 200 staff.", said)
+        self.assertEqual(plugin.ctx.llm.calls, [])  # Nothing was read or written again.
+        self.assertEqual(json.loads(plugin._store("live").get("customers_job"))["stage"], "finding")
+
+    def test_a_site_that_cannot_be_read_leaves_no_demo_behind(self):
+        """Typed as the help shows it, the example address used to leave them in an empty demo that refused their real site."""
+        plugin = self.make()
+        said = plugin.customers_command("demo yoursite.com", platform="telegram", source=self.dm())
+        self.assertEqual(said, "That's the example address. Put your own website in its place.")
+        self.assertFalse(plugin.in_demo())
+        # A desk demo that was already open stays open.
+        plugin.command("demo", platform="telegram", source=self.dm())
+        plugin.customers_command("demo yoursite.com", platform="telegram", source=self.dm())
+        self.assertTrue(plugin.in_demo())
+
+    def test_the_demo_needs_a_model_and_says_so(self):
+        plugin = self.make()
+        plugin.ctx.llm = None
+        said = plugin.customers_command("demo acme.example", platform="telegram", source=self.dm())
+        self.assertEqual(said, self.entry.NO_MODEL)
+        self.assertFalse(plugin.in_demo())
 
     def test_buyer_is_a_command_not_a_site_to_read(self):
         plugin = self.make()
@@ -597,7 +659,6 @@ class PluginCase(unittest.TestCase):
                  "signals": [{"source": "job_postings", "description": "Posted a Facilities Manager role to oversee an outsourced "
                               "janitorial contractor. Source: LinkedIn Jobs posting, past 30 days"}]}
         store = plugin._store("demo")
-        store.put("own_site", "1")
         store.put("customers_job", json.dumps({"id": "abcd12345678", "stage": "scanned", "people": [], "emails": None,
                                                "created_at": 1.0, "brief": brief}))
         people = plugin.customers().api.pipeline_contacts(None)
@@ -615,7 +676,8 @@ class PluginCase(unittest.TestCase):
         waiting = {"id": "abcd12345678", "stage": "needs_key", "people": [], "emails": None, "created_at": 1.0,
                    "brief": {"product_name": "Acme", "domain": "acme.example"}}
         plugin._store("live").put("customers_job", json.dumps(waiting))
-        intro = plugin.customers_command("demo", platform="telegram", source=self.dm())
+        plugin.ctx.llm = stock.DemoLlm()
+        intro = self.tour(plugin)
         self.assertIn("Your real search is saved. Back to it any time: /customers demo off", intro)
         code = intro.split("/customers go ")[1].split()[0]
         plugin.customers_command(f"go {code}", platform="telegram", source=self.dm())
@@ -652,15 +714,15 @@ class PluginCase(unittest.TestCase):
         self.assertIn("Back to your real search: /customers demo off", printed[1])
 
     def test_the_desk_demo_keeps_a_customers_demo(self):
-        plugin = self.make()
-        plugin.customers_command("demo", platform="telegram", source=self.dm())
+        plugin = self.touring()
+        self.tour(plugin)
         plugin.command("demo", platform="telegram", source=self.dm())
         self.assertIsNotNone(plugin.customers().job())
 
     def test_the_demo_walks_from_go_to_emails(self):
-        plugin = self.make()
+        plugin = self.touring()
         dm = self.dm()
-        shown = plugin.customers_command("demo", platform="telegram", source=dm)
+        shown = self.tour(plugin)
         code = shown.split("/customers go ")[1].split()[0]
         plugin.customers_command(f"go {code.upper()}", platform="telegram", source=dm)
         self.assertIn("/customers write", plugin.customers_command("", platform="telegram", source=dm))

@@ -13,8 +13,8 @@ if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
 from leadpoet_plugin.api import ApiError, LeadpoetApi  # noqa: E402
-from leadpoet_plugin.customers import ADD_KEY, HELP as CUSTOMERS_HELP, KEY_STEPS, Customers, same_site, trouble  # noqa: E402
-from leadpoet_plugin.customers_demo import SELLER, DemoCustomersApi, DemoLlm, demo_fetch  # noqa: E402
+from leadpoet_plugin.customers import ADD_KEY, HELP as CUSTOMERS_HELP, KEY_STEPS, NO_MODEL, Customers, same_site, trouble  # noqa: E402
+from leadpoet_plugin.customers_demo import DemoCustomersApi, demo_fetch  # noqa: E402
 from leadpoet_plugin.demo import DemoApi  # noqa: E402
 from leadpoet_plugin.desk import Desk  # noqa: E402
 from leadpoet_plugin.poll import data_dir, get_key, main as poll_main  # noqa: E402
@@ -142,13 +142,9 @@ class Plugin:
         llm = getattr(self.ctx, "llm", None)
         if self.in_demo():
             self._demo_customers = self._demo_customers or DemoCustomersApi()
-            own_site = self._store("demo").get("own_site") == "1" and llm is not None
-            if own_site:  # Emails about your real site are signed with its name, not the fictional seller's.
-                self._demo_customers.sender_name = ""
-                job = Customers(None, self._store("demo")).job()
-                self._demo_customers.fit = job["brief"] if job else None  # So the made-up prospects fit this search.
-            return Customers(self._demo_customers, self._store("demo"), llm if own_site else DemoLlm(), demo_fetch,
-                             say=self._say() if own_site else None)
+            job = Customers(None, self._store("demo")).job()
+            self._demo_customers.fit = job["brief"] if job else None  # So the made-up prospects fit this search.
+            return Customers(self._demo_customers, self._store("demo"), llm, demo_fetch, say=self._say())
         key = get_key()
         return Customers(LeadpoetApi(key) if key else None, self._store("live"), llm, say=self._say())
 
@@ -163,6 +159,12 @@ class Plugin:
             if not self._real_search():
                 return off
             return "Demo off. Back to your real search.\n\n" + self.customers().handle("", "")
+        mine = Customers(None, self._store("live")).job()
+        if not argument and not mine:
+            return "Add your site to preview it with made-up contacts: /customers demo yoursite.com"
+        if getattr(self.ctx, "llm", None) is None:
+            return NO_MODEL
+        already = self.in_demo()
         self._store("live").put("demo", "1")
         self._demo_api, self._demo_customers = DemoApi(), DemoCustomersApi()
         self._store("demo").reset()
@@ -170,21 +172,20 @@ class Plugin:
         desk.sync()
         for item in desk.store.open_items():
             desk.store.update(item["task_id"], state="new", skipped=0, draft=None)
-        llm = getattr(self.ctx, "llm", None)
         real = self._real_search()
         state = "is saved" if real and real["stage"] in ("needs_key", "needs_credits") else "keeps running"
         kept = f"\nYour real search {state}. Back to it any time: /customers demo off" if real else ""
-        if argument and llm is None:
-            argument = ""  # Reading a real site needs a model, so the made-up seller stands in.
-        if argument:
-            intro = ("Demo mode: this is your real website, read by your model. "
-                     f"The prospects are made up, so nothing can reach anyone.{kept}\n\n")
-            self._store("demo").put("own_site", "1")
-            demo = Customers(self._demo_customers, self._store("demo"), llm, say=self._say())
-            mine = Customers(None, self._store("live")).job()
-            return intro + (demo.preview_of(mine) if mine and same_site(mine, argument) else demo.start(argument))
-        intro = f"Demo mode: every company and person here is made up, so nothing can reach anyone.{kept}\n\n"
-        return intro + self.customers().start(SELLER)
+        demo = self.customers()
+        made_up = f"The prospects are made up, so nothing can reach anyone.{kept}\n\n"
+        # With no site named, or the site of the search they have, the preview is of that search: same card, nothing read twice.
+        if mine and (not argument or same_site(mine, argument)):
+            return "Demo mode: this is your own search. " + made_up + demo.preview_of(mine)
+        said = demo.start(argument)
+        if not demo.job():  # The site couldn't be read, so there is nothing to preview and no demo to be left in.
+            if not already:
+                self._demo("off")
+            return said
+        return "Demo mode: this is your real website, read by your model. " + made_up + said
 
     def customers_command(self, raw_args: str, *, platform: str = "", source: Any = None, **_: Any) -> str:
         try:
@@ -333,7 +334,7 @@ def register(ctx: Any) -> None:
     ctx.register_tool("leadpoet_desk_set_draft", "leadpoet_desk", SET_DRAFT_SCHEMA, plugin.tool_set_draft)
     ctx.register_tool("leadpoet_customers_status", "leadpoet_desk", CUSTOMERS_SCHEMA, plugin.tool_customers)
     ctx.register_command("customers", handler=_styled(plugin.customers_command), description="Turn your website into customers",
-                         args_hint="yoursite.com | demo")
+                         args_hint="yoursite.com | demo yoursite.com")
     ctx.register_command("desk", handler=_styled(plugin.command), description="Answer your Leadpoet sales replies",
                          args_hint="list | check | demo | send <code>")
     ctx.register_cli_command(name="leadpoet", help="Set up Leadpoet alerts",

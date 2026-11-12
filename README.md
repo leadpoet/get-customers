@@ -17,12 +17,12 @@ Send your website. Get customers.
 ## Try it now, with no account
 
 ```
-/customers demo
+/customers demo yoursite.com
 ```
 
-It runs the whole job with fictional companies. Nothing can reach anyone, and it needs no key. One of the fictional lines is wrong on purpose, so you can watch it get thrown out.
+It reads your real site with your model and runs the whole job: the brief, the contacts, the emails and the approval. The brief is real. The companies and people are made up, so nothing can reach anyone, and it needs no key.
 
-Want to see it read your real site? `/customers demo yoursite.com`. The brief is real. The prospects are made up.
+Already have a search? `/customers demo` previews that one, with the same card.
 
 ## Try it for real
 

@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from leadpoet_plugin import style  # noqa: E402
 from leadpoet_plugin.style import ANSI, mark, render  # noqa: E402
+import stock  # noqa: E402
 from test_desk import FakeCtx, load_entry  # noqa: E402
 
 
@@ -197,7 +198,8 @@ class RegisteredCase(unittest.TestCase):
             self.assertIn("/customers", self.say("customers", "help"))
 
     def test_the_demo_runs_end_to_end_with_styled_replies(self):
-        shown = self.say("customers", "demo")
+        self.ctx.llm = stock.DemoLlm()
+        shown = self.say("customers", "demo sunnyday.example")
         self.assertIn("**Sunnyday**", shown)
         shown = self.say("customers", "go " + self.code(shown, "/customers go"))
         self.assertIn("**3 verified contacts are in.**", shown)
@@ -208,10 +210,10 @@ class RegisteredCase(unittest.TestCase):
         shown = self.say("customers", "all " + self.code(shown, "/customers all"))
         self.assertIn("Demo finished", shown)
         shown = self.say("desk", "")
-        self.assertIn("**Marcus Oyelaran, Pinecrest Freight**", shown)
+        self.assertIn("**Marcus Oyelaran, Pinecrest Group**", shown)
         self.assertIn("> This is timely.", shown)
         shown = self.say("desk", "send " + self.code(shown, "/desk send"))
-        self.assertIn("**Sent to Marcus Oyelaran, Pinecrest Freight.**", shown)
+        self.assertIn("**Sent to Marcus Oyelaran, Pinecrest Group.**", shown)
 
     def test_with_no_key_each_command_says_how_to_add_one(self):
         real = self.entry.get_key
@@ -221,8 +223,9 @@ class RegisteredCase(unittest.TestCase):
         self.assertIn("https://leadpoet.com/dashboard/account?section=integrations", desk)
         self.assertIn("`hermes config set LEADPOET_API_KEY <your key>`", desk)
         self.assertIn("`/desk demo`", desk)
-        self.assertIn("`/customers demo`", self.say("customers", ""))
+        self.assertIn("`/customers demo yoursite.com`", self.say("customers", ""))
 
     def test_a_terminal_session_reads_the_same_words(self):
-        styled, written = self.say("customers", "demo", platform="telegram"), self.say("customers", "", platform="tui")
+        self.ctx.llm = stock.DemoLlm()
+        styled, written = self.say("customers", "demo sunnyday.example", platform="telegram"), self.say("customers", "", platform="tui")
         self.assertEqual(plain(styled).split("\n\n", 1)[1], written)

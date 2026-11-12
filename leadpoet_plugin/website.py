@@ -167,7 +167,7 @@ _PLACEHOLDER = re.compile(r"^(?:https?://)?(?:www\.)?(?:your|my|other)-?(?:site|
 _SITE_TOKEN = re.compile(r"(?:https?://)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:/[^\s<>|]*)?", re.IGNORECASE)
 _NOT_FILLED_IN = re.compile(r"^<?(?:your|my)[ -]?(?:web)?site(?: here)?>?$", re.IGNORECASE)
 _WRAPPING = "<>\"'`“”‘’*"
-_EXAMPLE = "That's the example address. Send your own website after /customers.\nOr try it first: /customers demo"
+_EXAMPLE = "That's the example address. Put your own website in its place."
 
 
 def typed_site(raw: str) -> str:

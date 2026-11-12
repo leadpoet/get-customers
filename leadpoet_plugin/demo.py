@@ -5,14 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 _REPLIES = [
-    ("demo-1", "Priya Raman", "Harbor Lane Roasters", "question", "urgent", 12,
+    ("demo-1", "Priya Raman", "Harbor Lane Partners", "question", "urgent", 12,
      "Thanks for reaching out. What does this cost for a team of five, and can we try it first?",
      "Hi Priya, happy to help. "
      "[ADD: price and trial length] Would a 15 minute call this week be useful?"),
-    ("demo-2", "Marcus Oyelaran", "Pinecrest Freight", "positive", "urgent", 95,
+    ("demo-2", "Marcus Oyelaran", "Pinecrest Group", "positive", "urgent", 95,
      "This is timely. Can you do Thursday afternoon?",
      "Hi Marcus, glad the timing works. Thursday afternoon is good. Does 2 PM your time suit you?"),
-    ("demo-3", "Lena Fischer", "Tallgrass Couriers", "negative", "normal", 1500,
+    ("demo-3", "Lena Fischer", "Tallgrass Associates", "negative", "normal", 1500,
      "Please remove me from your list.", None),
 ]
 

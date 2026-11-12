@@ -6,7 +6,7 @@ from pathlib import Path
 
 from leadpoet_plugin.api import ApiError
 from leadpoet_plugin.customers import Customers
-from leadpoet_plugin.customers_demo import DemoCustomersApi, DemoLlm, SELLER, demo_fetch
+from stock import DemoCustomersApi, DemoLlm, SELLER, demo_fetch
 from leadpoet_plugin.store import Store
 
 WRITES = ("create_request", "create_audience", "create_campaign", "launch_campaign", "approve_drafts")

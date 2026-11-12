@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from leadpoet_plugin.api import ApiError
 from leadpoet_plugin.brief import description, product_text, write_brief
 from leadpoet_plugin.customers import Customers, affordable_companies
-from leadpoet_plugin.customers_demo import DemoCustomersApi, DemoLlm, SELLER, demo_fetch
+from stock import DemoCustomersApi, DemoLlm, SELLER, demo_fetch
 from leadpoet_plugin.store import Store
 from leadpoet_plugin.website import Page, Scan
 from leadpoet_plugin.brief import validate_brief
@@ -1387,7 +1387,7 @@ class SignalTests(unittest.TestCase):
 
 class SubjectFallbackTests(unittest.TestCase):
     def test_a_bad_subject_alone_never_costs_the_emails(self):
-        from leadpoet_plugin.customers_demo import _SEQUENCE
+        from stock import _SEQUENCE
         from leadpoet_plugin.website import scan_site
         from leadpoet_plugin.writer import check_sequence
         brief = write_brief(DemoLlm(), scan_site(SELLER, fetcher=demo_fetch))
@@ -1944,7 +1944,7 @@ class RequestPathFindingsCase(unittest.TestCase):
     def test_the_example_address_is_not_read_as_a_site(self):
         for said in ("yoursite.com", "<your website>", "your website", "https://www.yoursite.com/"):
             with self.subTest(said):
-                self.assertIn("/customers demo", self.customers().start(said))
+                self.assertEqual(self.customers().start(said), "That's the example address. Put your own website in its place.")
 
     def test_two_sites_or_an_email_address_are_still_refused(self):
         for said in ("foo.com bar.com", "write to me at sam@foo.com"):
@@ -1961,10 +1961,11 @@ class RequestPathFindingsCase(unittest.TestCase):
         self.assertIsNone(validate_brief(self.raw(sells_to_businesses=False, facts=[]), scan))
         self.assertTrue(validate_brief(self.raw(sells_to_businesses=False), scan)["consumer"])
 
-    def test_a_consumer_company_is_shown_the_demo(self):
+    def test_a_consumer_company_is_told_how_to_go_on(self):
         text = self.customers(replies=[self.raw(sells_to_businesses=False)]).start("linear.app")
         self.assertIn("sells to consumers", text)
-        self.assertIn("/customers demo", text)
+        self.assertIn("/customers about <your text>", text)
+        self.assertNotIn("/customers demo", text)  # A preview needs a buyer too, so it isn't offered here.
 
     def test_the_progress_note_names_the_page_that_was_typed(self):
         notes = []
