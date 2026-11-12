@@ -327,9 +327,12 @@ class Customers:
             return ("This search has spent credits, so I'll keep it unless you're sure.\n"
                     "To look at another company, just send /customers othersite.com and this one keeps running.\n"
                     "Drop it anyway: /customers reset confirm")
+        paid = bool(job and job.get("query_id"))
         self._retire(job)
         self.save(None)
-        return "Started fresh. Send /customers yoursite.com"
+        # Dropping it here doesn't stop the request, so the contacts already paid for must not look lost.
+        return ("Started fresh. Leadpoet still finishes the search you paid for, and its contacts land in your account: "
+                f"{LEAD_ENGINE_URL}\n\nSend /customers yoursite.com" if paid else "Started fresh. Send /customers yoursite.com")
 
     def _unconfirmed_find(self, job: dict) -> str:
         return ("I asked Leadpoet for this search and never heard back, so credits may already be spent. "
@@ -709,7 +712,8 @@ class Customers:
         people = job["people"]
         sourced = sum(1 for person in people if person["lines"])
         dropped = sum(person["dropped"] for person in people)
-        text = f"Wrote for {len(people)} people. {sourced} have a personal line with a source."
+        text = (f"Wrote for {len(people)} {'person' if len(people) == 1 else 'people'}. "
+                f"{sourced} {'has' if sourced == 1 else 'have'} a personal line with a source.")
         if dropped:
             text += f" I threw out {dropped} line{'s' if dropped != 1 else ''} the page didn't back up."
         return text
@@ -1299,7 +1303,11 @@ class Customers:
         match = exact[0] if exact else matches[0] if len(matches) == 1 else None  # Two that fit a short name: ask which.
         if match is None:
             names = ", ".join(_site(other) for _, other in others if other)
-            return f"Your other searches: {names}\nOpen one: /customers open <site>" if names else "You have no other searches. Start one: /customers yoursite.com"
+            if names:
+                return f"Your other searches: {names}\nOpen one: /customers open <site>"
+            # A card that spent nothing gives way to the next one, so the way back is to read that site again.
+            return (f"No saved search for {wanted}. Read it again: /customers {wanted}" if "." in wanted
+                    else "You have no other searches. Start one: /customers yoursite.com")
         key, target = match
         self.store.put(_PARKED, json.dumps([k for k in self._parked() if k != key]))
         self._other(key).save(None)

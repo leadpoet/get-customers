@@ -338,6 +338,12 @@ class WriteCase(Case):
         self.assertNotIn("Omaha", json.dumps(self.people()["Lena"]["touches"]))
         self.assertIn("threw out 1", self.text)
 
+    def test_the_summary_counts_one_person_in_the_singular(self):
+        real = self.api.pipeline_contacts
+        self.api.pipeline_contacts = lambda icp: [row for row in real(icp) if row["id"] == "lead-marcus"]
+        self.to_review()
+        self.assertTrue(self.text.startswith("Wrote for 1 person. 1 has a personal line with a source."), self.text)
+
     def test_every_personal_line_carries_its_quote_and_page(self):
         real = self.api.pipeline_contacts
         self.api.pipeline_contacts = lambda icp: [{**row, "icp_details": None} for row in real(icp)]
@@ -1490,7 +1496,10 @@ class ManySearchesCase(Case):
     def test_reset_keeps_a_paid_search_unless_confirmed(self):
         self.assertIn("keep it unless you're sure", self.customers.handle("reset", ""))
         self.assertEqual(self.customers.job()["stage"], "finding")
-        self.assertIn("Started fresh", self.customers.handle("reset", "confirm"))
+        fresh = self.customers.handle("reset", "confirm")
+        # The request keeps running at Leadpoet, so the reply must not suggest the paid contacts are gone.
+        self.assertIn("Leadpoet still finishes the search you paid for", fresh)
+        self.assertIn("https://leadpoet.com/dashboard/lead-engine", fresh)
         self.assertIsNone(self.customers.job())
 
     def test_list_shows_people_still_running_from_an_earlier_search(self):
@@ -1675,6 +1684,15 @@ class ReasoningBudgetTests(unittest.TestCase):
 
 class WalkFindingsCase(Case):
     """Paths a user walked into on a phone."""
+
+    def test_resetting_a_card_that_spent_nothing_says_only_that(self):
+        self.assertEqual(self.customers.handle("reset", ""), "Started fresh. Send /customers yoursite.com")
+
+    def test_opening_a_site_whose_free_card_gave_way_offers_to_read_it_again(self):
+        # Only one card that spent nothing is kept, so a site read before has no saved search to open.
+        self.assertEqual(self.customers.handle("open", "gorgias.com"),
+                         "No saved search for gorgias.com. Read it again: /customers gorgias.com")
+        self.assertIn("You have no other searches", self.customers.handle("open", "gorgias"))
 
     def test_a_key_added_after_the_offer_shows_the_cost_before_spending(self):
         store = Store(Path(self.tmp.name) / "k.db")
