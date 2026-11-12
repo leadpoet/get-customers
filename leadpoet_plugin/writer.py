@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import urllib.parse
 from typing import Any
 
 from .evidence import GLUE, GRAMMAR, NEGATION, has_lookalike, unsupported
@@ -90,8 +91,9 @@ _SEQUENCE_SYSTEM = (
     "number with no verb becomes: Stripe has 99.999% historical uptime [2]. Never write we, our, I or my, and never "
     "use a customer's quote as if the seller said it. A claim may open with a condition about the reader: If feedback "
     "piles up at {company}, Linear lets you turn feedback into issues [1]. The condition must be the problem that exact claim solves.\n"
-    "2. A sentence starting with If, about the reader's situation, saying nothing about the seller or what it does or promises. After the comma start with that, your or you: If your reps clean lists by hand, that is time away from buyers.\n"
-    "3. A question about the reader or asking for a reply or a short call. Every email has exactly one, right before the "
+    "2. A sentence starting with If, about the reader's situation, saying nothing about the seller or what it does or promises. After the comma start with that, your or you: If your reps clean lists by hand, that is time away from buyers. "
+    "The claim after it must solve that exact problem.\n"
+    "3. A question about the reader or asking for a short call. Every email has exactly one, right before the "
     "sign-off. Offer nothing else unless a source names it. It can't mention the seller. Good ones: Is this worth a short "
     "call? Who handles this at {company}?\n"
     "4. A greeting like Hi {first_name}, or a sign-off like Best, then {sender}.\n"
@@ -155,6 +157,9 @@ _STAT_TILE = re.compile(r"\W*\S+(?:\s+\S+)?\W*$|\W*(?i:over\s+|more\s+than\s+)?[
 # A tile like "Trusted & Loved by 10,000+ teams" takes is, never has: "Persana AI has Trusted & Loved by" was seen live.
 _HAS_PASSIVE = re.compile(r"\bhas\s+(?:trusted|loved|backed|chosen|rated|funded|recognized|recognised|featured|used|powered)\b"
                           r"(?:\s*(?:&|and)\s*\w+)?\s+(?:by|in|on)\b", re.IGNORECASE)
+# Their pitch about themselves is not news to them. Seen live: "Bardeen is ideal for GTM teams across various roles".
+_SELF_PRAISE = re.compile(r"\b(?:is|are)\s+(?:the\s+|a\s+|an\s+)?(?:ideal|perfect|best|leading|premier|ultimate|go-to|#1|number one|"
+                          r"(?:built|designed|made)\s+for)\b", re.IGNORECASE)
 _STORY_PAGE = re.compile(r"/(?:customers?|customer-stor|case-stud|clients?|testimonials?|reviews?|stories|success|wall-of-love)"
                          r"|[?&](?:story|case|customer)=", re.IGNORECASE)
 # One customer's story, at /case-study/cortex or /customer-stories/cortex, is theirs from its first line to its last.
@@ -225,7 +230,7 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
             continue
         line, quote, url = _sentence(clean(entry.get("line"), 400)), clean(entry.get("quote"), 500), clean(entry.get("url"), 2000)
         # A stat tile's meaning is in the label beside it: "5000+ Salespeople" counts their users, not their staff.
-        good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _HAS_PASSIVE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
+        good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _HAS_PASSIVE.search(line) and not _SELF_PRAISE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
                 and not _NO_SUBJECT_OPENING.match(line)
                 and quote_is_on_page(scan, url, quote) and line_is_supported(line, quote, person)
                 and not _someone_else_speaks(quote, url, str(person.get("company") or ""), scan)
@@ -326,6 +331,17 @@ def _name_in_note(text: str, company: str) -> str | None:
     return text[:found[end - 1].end()]
 
 
+def _site_carries(site: Any, word: str) -> bool:
+    """Their website is named for this one word: default.com, gorattle.com and outplayhq.com, not bankofthewest.com."""
+    word = re.sub(r"[^a-z0-9]", "", word.lower())
+    try:
+        host = urllib.parse.urlsplit(str(site or "") if "://" in str(site or "") else f"https://{site}").hostname or ""
+    except ValueError:  # A record's website can be anything, like http://[x.
+        return False
+    names = {f"{before}{word}{after}" for before in ("", "go", "get", "try", "use") for after in ("", "hq", "app")}
+    return len(word) >= 3 and any(label in names for label in host.lower().split(".")[:-1])
+
+
 def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     """The buying signal Leadpoet found, as the first line. The note is the source, so the line may only restate it.
 
@@ -338,9 +354,13 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     record = str(person.get("company") or "")
     # Notes write the full record ("Alco Building Solutions (ABS) is") or drop its tagline ("AG Adjustments is" for AG
     # Adjustments, a Cadex Company). The longer match wins. A one-word bare name can be an ordinary word ("Home sales
-    # rose" for Home | Acme Roofing), so only the full record can match it.
+    # rose" for Home | Acme Roofing), so only the full record can match it. Notes also drop words a legal name keeps
+    # ("Juro hired" for Juro Online Ltd). Either one word stands for them when their website is named for it: juro.com,
+    # gorattle.com for Rattle (Rattle Software Inc.), default.com for Default - Inbound Automation.
     bare = _bare_name(record)
-    found = [_name_in_note(signal, name) for name in dict.fromkeys((record, bare if " " in bare else record))]
+    first = bare.split()[0].strip(",.") if bare.split() else ""
+    found = [_name_in_note(signal, name) for name in dict.fromkeys(
+        (record, bare if " " in bare else record, first if _site_carries(person.get("website"), first) else record))]
     company = max((name for name in found if name), key=len, default=None if None in found else "")
     if company is None:  # It opens on someone else's name.
         return [], 0
@@ -459,14 +479,15 @@ def _subject_problem(subject: str, brief: dict, quotes: str, where: str) -> str:
 def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -> tuple[list[dict] | None, str]:
     """Return three clean emails, or the first thing that's wrong so the model can fix it.
 
-    With safe_subjects, a subject that fails is swapped for a safe one instead of losing the emails."""
+    With safe_subjects, a subject that fails is swapped for a safe one, and a repeated proof is let through, instead of
+    losing the emails."""
     emails = raw.get("emails") if raw and isinstance(raw.get("emails"), list) else []
     if len(emails) != 3:
         return None, "Write exactly three emails, as JSON."
     quotes = " ".join(fact["quote"] for fact in brief["facts"])
     proof = numbers_in(quotes)
     proof_words = _words(quotes)
-    cleaned = []
+    cleaned, used = [], []
     for index, email in enumerate(emails):
         if not isinstance(email, dict):
             return None, "Each email needs a subject and a body."
@@ -513,6 +534,12 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
             return None, f"{where} needs at least one claim with a proof number."
         if not asked:
             return None, f"{where} needs a question before the sign-off."
+        # Seen live: email three made email one's claim again. With three or more proofs there is one for each email.
+        cites = {number for found in _CITATION.findall(body) for number in re.findall(r"\d+", found)}
+        earlier = next((spot for spot, before in enumerate(used, 1) if cites <= before), 0)
+        if earlier and len({fact["quote"] for fact in brief["facts"]}) >= 3 and not safe_subjects:
+            return None, f"{where} makes email {earlier}'s claim again. Use a different proof."
+        used.append(cites)
         cleaned.append({"subject": subject, "body": _tidy(bare)})
     return cleaned, ""
 

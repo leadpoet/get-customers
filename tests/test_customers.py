@@ -1187,6 +1187,22 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(validate_sequence(self.emails(one), self.BRIEF))
         self.assert_refused(one.replace("Stripe lets", "If checkout is slow, Stripe lets"))
 
+    def test_each_email_makes_a_different_claim(self):
+        """Seen live: email three repeated email one's claim word for word. A short brief may reuse its one proof."""
+        from leadpoet_plugin.writer import check_sequence
+        brief = {"product_name": "Stripe", "facts": [{"text": "t", "said_by": "seller", "quote": quote} for quote in
+                                                      ("Accept payments online", "Send invoices in minutes", "Pay out in 40 countries")]}
+        def emails(third):
+            return {"emails": [{"subject": "payments", "body": "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?"},
+                               {"subject": "payments", "body": "Stripe lets you send invoices in minutes [2]. Who handles billing?"},
+                               {"subject": "payments", "body": f"{third} Open to a short call?"}]}
+        self.assertTrue(validate_sequence(emails("Stripe lets you pay out in 40 countries [3]."), brief))
+        repeat = emails("If checkout drags, Stripe lets you accept payments online [1].")
+        self.assertIsNone(validate_sequence(repeat, brief))
+        self.assertTrue(check_sequence(repeat, brief, safe_subjects=True)[0])  # Kept in hand rather than losing all three.
+        two = {**brief, "facts": brief["facts"][:2]}
+        self.assertTrue(validate_sequence(emails("If checkout drags, Stripe lets you accept payments online [1]."), two))
+
     def test_claims_with_no_source_never_reach_an_email(self):
         marker = "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?\n"
         for extra in ("Google, Stripe and Walmart all rely on us.", "Act fast and get started today.", "That keeps velocity up.",
@@ -1276,6 +1292,12 @@ class EvidenceTests(unittest.TestCase):
                                "https://persana.ai/", "Persana AI"))
         self.assertTrue(lines("Trusted & Loved by 10,000+ teams", "Persana AI is trusted & loved by 10,000+ teams.",
                               "https://persana.ai/", "Persana AI"))
+        # Seen live on bardeen.ai: their own positioning, said back to them.
+        for quote in ("Bardeen is ideal for GTM teams across various roles including Sales (SDRs, AEs)",
+                      "Bardeen is the leading AI agent for GTM teams", "Bardeen is built for GTM teams"):
+            self.assertFalse(lines(quote, quote + ".", "https://www.bardeen.ai/", "Bardeen"), quote)
+        self.assertTrue(lines("Bardeen is used by 200,000 GTM teams", "Bardeen is used by 200,000 GTM teams.",
+                              "https://www.bardeen.ai/", "Bardeen"))
         # Found in review: a customer's result on a story list, or on a customer-stories page, or quoted without "our".
         result = "Response rates doubled within the first month"
         for url in ("https://acme.com/customer-stories/cortex", "https://acme.com/clients/cortex", "https://acme.com/customers?story=cortex"):
@@ -1595,6 +1617,24 @@ class SignalOpenerTests(unittest.TestCase):
                                   ("AC / DC Electric", "AC units sold out in Texas in May."),
                                   ("Re: Build Manufacturing", "Re-shoring grew 20% in May.")):
             self.assertEqual(opener(company, sentence, sentence), [], company)
+        # A website named for the one word confirms it is their name: six of twenty records in two full runs lost
+        # their signal this way. A site that isn't named for it, or names something longer, still refuses.
+        def on_site(company, site, sentence):
+            llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": sentence})))
+            return [row["line"] for row in signal_opener(llm, {"company": company, "website": site, "why": sentence})[0]]
+        for company, site, sentence in (("Rattle (Rattle Software Inc.)", "gorattle.com", "Rattle hired a VP of Sales in May."),
+                                        ("Default - Inbound Automation", "https://www.default.com", "Default posted two SDR roles."),
+                                        ("Outplay | Sales Engagement Platform", "outplayhq.com", "Outplay is hiring four SDRs."),
+                                        ("Juro Online Ltd", "juro.com", "Juro hired a CRO on 3 October 2026."),
+                                        ("Dealfront Systems, Inc.", "https://www.dealfront.com/", "Dealfront is hiring six SDRs in Boston.")):
+            self.assertEqual(on_site(company, site, sentence), [sentence], company)
+        for company, site, sentence in (("Home | Acme Roofing", "acmeroofing.com", "Home sales in Denver rose 8% in May."),
+                                        ("Home | Acme Roofing", "myhomeroofing.com", "Home sales in Denver rose 8% in May."),
+                                        ("Alpine, an ITW Company", "alpine.com", "Alpine Electronics hired a CRO."),
+                                        ("Bank of the West", "bankofthewest.com", "Bank of America acquired a fintech."),
+                                        ("Acme Group", "acme.com", "Acme Health raised $20M."),
+                                        ("Juro Online Ltd", "", "Juro hired a CRO on 3 October 2026.")):
+            self.assertEqual(on_site(company, site, sentence), [], company)
         self.assertEqual(opener("Kahuna | Skills Platform", "Hiring SDR managers.", "Kahuna | Skills Platform is hiring SDR managers."), [])
         self.assertEqual(opener("Kahuna | Skills Platform", "Hiring SDR managers.", "Kahuna is hiring SDR managers."),
                          ["Kahuna is hiring SDR managers."])
