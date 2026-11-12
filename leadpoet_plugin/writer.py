@@ -192,6 +192,18 @@ def _sentence(line: str) -> str:
 
 _HEDGE = re.compile(r"\b(?:may|might|could|likely|probably|possibly|perhaps|plans?|planning|considering|evaluating|"
                     r"appears?|seems?|reportedly|rumou?red|expected|potential(?:ly)?)\b", re.IGNORECASE)
+# "Hired a CRO in May" is a date, not a guess. "May open an office" and "Says It May Hire" still are.
+_MONTH_MAY = re.compile(r"\b(?:in|since|by|on|until|through|from|during|before|after|of|last|this|early|late|mid)[\s-]+May\b|"
+                        r"\bMay\b(?=,?\s+\d)")
+# ", indicating a need to grow their sales team" is Leadpoet's reading of the event. Said to them, it's a guess about
+# their business; 30% of real openers ended on one. The event before it stands alone. Only these verbs, lowercase, so
+# "sells to Indicative, Showpad and Highspot" keeps its list.
+_INFERENCE = re.compile(r",\s+(?:which\s+)?(?:indicat(?:ing|es|ed)|suggest(?:ing|s|ed)|signal(?:l?ing|s|l?ed)|highlight(?:ing|s|ed)|"
+                        r"underscor(?:ing|es|ed)|reflect(?:ing|s|ed)|demonstrat(?:ing|es|ed))\b")
+# A note may leave these off their name: "Spark Health" is Spark Health Inc. Any other missing word is another company.
+_NAME_SUFFIXES = frozenset({"inc", "incorporated", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "plc", "gmbh",
+                            "ag", "sa", "bv", "pty", "lp", "llp", "group", "holdings", "technologies", "ai", "io", "hq"})
+_WORD = re.compile(r"[a-z0-9$%]+(?:['’][a-z]+)?", re.IGNORECASE)
 _LEAD_INS = frozenset({"is", "was", "has", "had", "have", "are", "were"})
 _DOUBT = re.compile(r"\b(?:thin|unconfirmed|unverified|unclear|(?:does|do|did) not confirm|not confirmed|no longer)\b", re.IGNORECASE)
 _ABBREVIATIONS = frozenset({"inc", "co", "corp", "ltd", "llc", "st", "mr", "ms", "mrs", "dr", "jr", "sr", "vs", "no", "approx",
@@ -236,23 +248,55 @@ def restates_note(line: str, note: str, company: str) -> bool:
     return rest == source
 
 
+def _name_in_note(text: str, company: str) -> str | None:
+    """Their name as the text opens on it: "Spark Health" for Spark Health Inc, "The Acme Group" for Acme Group.
+
+    Real notes shorten and punctuate names, so matching the full legal name kept a quarter of them from opening.
+    Empty when the text doesn't open on their name; None when it opens on someone else's, like "Acme Health" for
+    Acme Group, "Bank of America" for Bank of the West, or "Linear, Remote switched"."""
+    found = list(_WORD.finditer(text))
+    words = [match.group().lower().replace("’", "'") for match in found]
+    name = _tokens(company)
+    name = name[1:] if name[:1] == ["the"] else name
+    start = 1 if words[:1] == ["the"] else 0
+    used = 0
+    while used < len(name) and start + used < len(words) and words[start + used] == name[used]:
+        used += 1
+    if not used:
+        return ""
+    if any(word not in _NAME_SUFFIXES for word in name[used:]):
+        return None
+    end = start + used
+    while end < len(words) and words[end] in _NAME_SUFFIXES and (found[end].group()[:1].isupper()  # "Acme, Inc." for Acme,
+                                                                 or text[found[end - 1].end():found[end].start()] == "."):  # Hunter.io
+        end += 1
+    if end < len(found) and found[end].group()[:1].isupper():
+        return None
+    return text[:found[end - 1].end()]
+
+
 def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     """The buying signal Leadpoet found, as the first line. The note is the source, so the line may only restate it.
 
     Only the note's first sentence, the event itself, can open: the rest explains the fit, and a closing "it does not
     show they are evaluating us" is not doubt about the event. Doubt about the evidence anywhere still means no line."""
     note = re.sub(r"\s+", " ", str(person.get("why") or "")).strip()
-    signal = lead_sentence(note)
-    if not signal or _HEDGE.search(signal) or _DOUBT.search(note):  # A guess is not a reason to write.
+    signal = _sentence(_INFERENCE.split(lead_sentence(note), 1)[0].rstrip(" ,;"))
+    if not signal or _HEDGE.search(_MONTH_MAY.sub("", signal)) or _DOUBT.search(note):  # A guess is not a reason to write.
         return [], 0
-    company = str(person.get("company") or "")
+    company = _name_in_note(signal, str(person.get("company") or ""))
+    if company is None:  # It opens on someone else's name.
+        return [], 0
+    company = company or str(person.get("company") or "")
     raw = _complete(llm, _SIGNAL_SYSTEM, f"Company: {company}\n<note>\n{without_tag(signal, 'note')}\n</note>",
                     f"leadpoet signal line: {company}")
     line = _sentence(clean((raw or {}).get("line"), 400))
     if not line:
         return [], 0
-    good = (len(line) <= MAX_LINE_CHARS and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, company)
-            and not _PLACEHOLDER.search(line) and restates_note(line, signal, company) and line_is_supported(line, signal, person))
+    # restates_note pins the opening to their name and the rest to Leadpoet's own words; _name_in_note keeps the name theirs.
+    good = (len(line) <= MAX_LINE_CHARS and ":" not in line and bool(_name_in_note(line, company))
+            and not _has_forbidden(line, company) and not _PLACEHOLDER.search(line)
+            and restates_note(line, signal, company) and line_is_supported(line, signal, {**person, "company": company}))
     return ([{"line": line, "quote": signal, "url": ""}], 0) if good else ([], 1)
 
 

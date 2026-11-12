@@ -1485,6 +1485,46 @@ class SignalOpenerTests(unittest.TestCase):
         self.assertEqual(self.line("Ramp posted one AE role.", why="Ramp posted one AE role. The evidence is thin."), ([], 0))
         self.assertEqual(self.line("Ramp Inc. hired a CRO.", why="Ramp Inc. hired a CRO in May. It is building a team.")[0], [])
 
+    def test_a_note_that_writes_their_name_its_own_way_still_opens(self):
+        """About 1,300 of 5,715 real notes shortened or punctuated the name ("Spark Health" for Spark Health Inc), and lost their opener."""
+        from leadpoet_plugin.writer import signal_opener
+        def opener(company, why, line):
+            llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": line})))
+            return [row["line"] for row in signal_opener(llm, {"company": company, "why": why})[0]]
+        for company, sentence in (("Spark Health Inc", "Spark Health is hiring four SDRs in Denver."),
+                                  ("Acme, Inc.", "Acme, Inc. opened a Denver office in May."),
+                                  ("Acme", "Acme, a freight broker, posted two SDR roles in May."),
+                                  ("Acme Group", "The Acme Group hired a CRO in May.")):
+            self.assertEqual(opener(company, sentence + " It sells to banks.", sentence), [sentence])
+        self.assertEqual(opener("Spark Health Inc", "Spark Health is hiring four SDRs in Denver.", "Spark Health is hiring SDRs."), [])
+        self.assertEqual(opener("Ramp", "Ramp's competitor Beta raised $20M.", "Ramp's competitor Beta raised $20M."), [])
+        self.assertEqual(opener("Ramp", "Ramp may hire SDRs in May.", "Ramp may hire SDRs in May."), [])  # The month isn't a guess; may is.
+        self.assertEqual(opener("Acme", "Acme Says It May Hire 50 Reps.", "Acme Says It May Hire 50 Reps."), [])
+        self.assertEqual(opener("Hunter", "Hunter.io posted its first SDR role in May 2026.", "Hunter.io posted its first SDR role in May 2026."),
+                         ["Hunter.io posted its first SDR role in May 2026."])
+        self.assertEqual(opener("Acme", "Acme, Inc. opened a Denver office.", "Acme, Inc. opened a Denver office."), ["Acme, Inc. opened a Denver office."])
+
+    def test_another_companys_name_never_opens_as_theirs(self):
+        """Matching part of the name must not hand a sister company's or a namesake's news to them."""
+        from leadpoet_plugin.writer import signal_opener
+        def opener(company, sentence):
+            llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": sentence})))
+            return signal_opener(llm, {"company": company, "why": sentence})[0]
+        self.assertEqual(opener("Acme Group", "Acme Health raised $20M."), [])
+        self.assertEqual(opener("Acme Group", "Acme Health, a sister company, raised $20M."), [])
+        self.assertEqual(opener("Bank of the West", "Bank of America acquired a fintech."), [])
+        self.assertEqual(opener("Acme", "Acme Communications hired a CRO."), [])
+        self.assertEqual(opener("Linear", "Linear, Remote and Notion switched to Acme."), [])
+
+    def test_the_opener_stops_before_leadpoets_reading_of_the_event(self):
+        """30% of real openers told the prospect "indicating a need to expand their sales efforts"."""
+        lines, _ = self.line("Ramp is hiring two SDRs.", why="Ramp is hiring two SDRs, indicating a potential push into outbound. More.")
+        self.assertEqual((lines[0]["line"], lines[0]["quote"]), ("Ramp is hiring two SDRs.", "Ramp is hiring two SDRs."))
+        self.assertEqual(self.line("Ramp is hiring two SDRs, indicating a push into outbound.",
+                                   why="Ramp is hiring two SDRs, indicating a push into outbound.")[0], [])
+        listed = "Ramp sells to Indicative, Showpad and Highspot."  # A name in a list is not Leadpoet's reading.
+        self.assertEqual(self.line(listed, why=listed)[0][0]["line"], listed)
+
     def test_the_first_sentence_survives_abbreviations(self):
         from leadpoet_plugin.writer import lead_sentence, short_note
         self.assertEqual(lead_sentence("Acme Inc. opened a U.S. office in May. It hires now."), "Acme Inc. opened a U.S. office in May.")
