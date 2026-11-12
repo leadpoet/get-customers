@@ -1272,6 +1272,13 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(validate_lines({"lines": [{"line": "Jobber's $150,000 grant program recognizes excellence in home service.",
                                                    "quote": "Our $150,000 grant program recognizes excellence in home service",
                                                    "url": "https://www.getjobber.com"}]}, scan, {"company": "Jobber"})[0])
+        # Seen live: the tile "5000+ Salespeople" counts Outplay's users, but became "Outplay has 5000+ Salespeople".
+        self.assertFalse(lines("5000+ Salespeople", "Outplay has 5000+ Salespeople.", "https://outplay.ai/", "Outplay"))
+        self.assertTrue(lines("45K+ users creating better buying moments", "Chili Piper has 45K+ users creating better buying moments.",
+                              "https://chilipiper.com/", "Chili Piper"))
+        self.assertFalse(lines("Default is already powering real-time alerts and data shaping",
+                               "Default is already powering real-time alerts and data shaping.",
+                               "https://www.default.com/case-study/how-cortex-used-default", "Default"))
         # Seen live: two lines to Default's VP came from case studies about People Data Labs and Cortex.
         story = "https://www.default.com/case-study/how-people-data-labs-used-default"
         self.assertFalse(lines("Default replaced a clunky LeanData + Marketo + Salesforce setup",

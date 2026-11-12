@@ -182,7 +182,10 @@ def _someone_else_speaks(quote: str, url: str, company: str, scan: Scan | None =
     if not _STORY_PAGE.search(path):  # Seen live: "Our outbound success rate increased by 30%" was a customer's, on /pricing.
         return bool(_FIRST_PERSON.search(quote)) and _beside_a_byline(scan, url, quote)
     # A story page is about their customer: "Default replaced a clunky LeanData + Marketo setup" happened at People Data
-    # Labs, and "between Cortex's existing systems" is Cortex's stack. Said to them alone, it reads as their own.
+    # Labs, and "between Cortex's existing systems" is Cortex's stack. Said to them alone, it reads as their own. One
+    # customer's story, at /case-study/cortex, is theirs from its first line to its last.
+    if re.search(r"/(?:customers?|case-stud[\w-]*|testimonials?|stories|success[\w-]*)/[^/?#]+", path, re.IGNORECASE):
+        return True
     own = set(re.findall(r"[a-z0-9]+", name))
     others = [word for word in re.findall(r"[A-Za-z0-9][\w&'’-]*", quote)[1:]
               if word[0].isupper() and re.sub(r"['’]s$", "", word).lower() not in own]
@@ -199,7 +202,8 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
             dropped += 1
             continue
         line, quote, url = _sentence(clean(entry.get("line"), 400)), clean(entry.get("quote"), 500), clean(entry.get("url"), 2000)
-        good = (line and len(line) <= MAX_LINE_CHARS and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
+        # A stat tile's meaning is in the label beside it: "5000+ Salespeople" counts their users, not their staff.
+        good = (line and len(line) <= MAX_LINE_CHARS and len(quote.split()) >= 3 and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
                 and not _NO_SUBJECT_OPENING.match(line)
                 and quote_is_on_page(scan, url, quote) and line_is_supported(line, quote, person)
                 and not _someone_else_speaks(quote, url, str(person.get("company") or ""), scan)
