@@ -1272,6 +1272,27 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(validate_lines({"lines": [{"line": "Jobber's $150,000 grant program recognizes excellence in home service.",
                                                    "quote": "Our $150,000 grant program recognizes excellence in home service",
                                                    "url": "https://www.getjobber.com"}]}, scan, {"company": "Jobber"})[0])
+        self.assertFalse(lines("Trusted & Loved by 10,000+ teams", "Persana AI has Trusted & Loved by 10,000+ teams.",
+                               "https://persana.ai/", "Persana AI"))
+        self.assertTrue(lines("Trusted & Loved by 10,000+ teams", "Persana AI is trusted & loved by 10,000+ teams.",
+                              "https://persana.ai/", "Persana AI"))
+        # Found in review: a customer's result on a story list, or on a customer-stories page, or quoted without "our".
+        result = "Response rates doubled within the first month"
+        for url in ("https://acme.com/customer-stories/cortex", "https://acme.com/clients/cortex", "https://acme.com/customers?story=cortex"):
+            self.assertFalse(lines(result, f"Acme {result.lower()}.", url, "Acme"), url)
+        self.assertFalse(lines("Cortex cut onboarding time by 50 percent", "Acme cut onboarding time by 50 percent.",
+                               "https://acme.com/customers", "Acme"))
+        scan = Scan("acme.com", [Page("https://acme.com/", "t", f"Loved by teams\n“{result}.”\nJane Doe, VP Sales at Cortex")])
+        self.assertFalse(validate_lines({"lines": [{"line": f"Acme {result.lower()}.", "quote": result, "url": "https://acme.com/"}]},
+                                        scan, {"company": "Acme"})[0])
+        # Seen live on mixmax.com/pricing: a carousel where each byline ends the quote's line, and no quote marks.
+        carousel = ("I wish we had started using Mixmax a lot sooner. It makes my life much, much easier. Samantha Kennedy Director, "
+                    "Enterprise Customer Success, Gong.io\nMixmax saves each user 1 day/month, and that savings translates into an "
+                    "extra hire. Francisco Morales Engineering Recruitment Lead, Canva\n")
+        scan = Scan("mixmax.com", [Page("https://www.mixmax.com/pricing", "t", carousel)])
+        self.assertFalse(validate_lines({"lines": [{"line": "Mixmax saves each user 1 day/month.", "quote": "Mixmax saves each user 1 day/month",
+                                                    "url": "https://www.mixmax.com/pricing"}]}, scan, {"company": "Mixmax"})[0])
+        self.assertFalse(lines("10,000+ Sales Professionals", "Acme has 10,000+ sales professionals.", "https://acme.com/", "Acme"))
         # Seen live: the tile "5000+ Salespeople" counts Outplay's users, but became "Outplay has 5000+ Salespeople".
         self.assertFalse(lines("5000+ Salespeople", "Outplay has 5000+ Salespeople.", "https://outplay.ai/", "Outplay"))
         self.assertTrue(lines("45K+ users creating better buying moments", "Chili Piper has 45K+ users creating better buying moments.",

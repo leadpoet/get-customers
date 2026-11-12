@@ -149,7 +149,17 @@ def _opens_on_company(line: str, person: dict) -> bool:
     return bool(used) and not tokens[used - 1].endswith(",") and not next_word[:1].isupper()  # "Clay Intercom grew" is someone else's story.
 
 
-_STORY_PAGE = re.compile(r"/(?:customers?|case-stud|testimonials?|reviews?|stories|success)", re.IGNORECASE)
+# A stat tile's meaning is in the label beside it: "5000+ Salespeople" counts Outplay's users, not its staff. A tile is a
+# number with a word or two, or a number with only capitalized words after it: "10,000+ Sales Professionals".
+_STAT_TILE = re.compile(r"\W*\S+(?:\s+\S+)?\W*$|\W*(?i:over\s+|more\s+than\s+)?[$€£]?\d[\d.,]*\S*(?:\s+[A-Z&][\w&'’-]*)+\W*$")
+# A tile like "Trusted & Loved by 10,000+ teams" takes is, never has: "Persana AI has Trusted & Loved by" was seen live.
+_HAS_PASSIVE = re.compile(r"\bhas\s+(?:trusted|loved|backed|chosen|rated|funded|recognized|recognised|featured|used|powered)\b"
+                          r"(?:\s*(?:&|and)\s*\w+)?\s+(?:by|in|on)\b", re.IGNORECASE)
+_STORY_PAGE = re.compile(r"/(?:customers?|customer-stor|case-stud|clients?|testimonials?|reviews?|stories|success|wall-of-love)"
+                         r"|[?&](?:story|case|customer)=", re.IGNORECASE)
+# One customer's story, at /case-study/cortex or /customer-stories/cortex, is theirs from its first line to its last.
+_ONE_STORY = re.compile(r"/(?:customers?|customer-stor[\w-]*|case-stud[\w-]*|clients?|testimonials?|stories|success[\w-]*|wall-of-love)"
+                        r"/[^/?#]+|[?&](?:story|case|customer)=", re.IGNORECASE)
 
 
 # A customer's quote sits beside their name and title: "Ash D / Business Development Manager", "Miguel Delgado, Sales Manager".
@@ -162,8 +172,19 @@ def _beside_a_byline(scan: Scan | None, url: str, quote: str) -> bool:
         if page.url != url:
             continue
         for found in re.finditer(r"\s+".join(map(re.escape, words)), page.text, re.IGNORECASE):
-            near = page.text[max(0, found.start() - 250):found.start()] + "\n" + page.text[found.end():found.end() + 250]
-            if "\u201c" in near or any(len(line.strip()) <= 80 and _BYLINE.search(line) for line in near.splitlines()):
+            before, after = page.text[max(0, found.start() - 250):found.start()], page.text[found.end():found.end() + 250]
+            bylines = [len(line.strip()) <= 80 and bool(_BYLINE.search(line)) for line in f"{before}\n{after}".splitlines()]
+            # In a carousel each quote follows the last one's byline: "..., Enterprise Customer Success, Gong.io" then
+            # "Mixmax saves each user 1 day/month". So the nearest line on either side, past the quote's own line, tells.
+            # A byline can also end the line it signs: "...much easier. Samantha Kennedy Director, Enterprise Customer Success".
+            above = [line.strip()[-80:] for line in before.split("\n")[:-1] if line.strip()][-1:]
+            below = [line.strip()[:80] for line in after.split("\n")[1:] if line.strip()][:1]
+            if any(_BYLINE.search(line) for line in above + below + [after.split("\n")[0][:200]]):
+                return True
+            # Someone speaking: "Our ..." or “...”, even when the quote leaves the Our or the mark off. "Trusted by 25,000+
+            # businesses" beside a carousel of testimonials is still their own.
+            speaking = _FIRST_PERSON.search(quote) or re.search(r"(?:[\u201c\"]|\b(?:[Oo]ur|[Ww]e|[Mm]y|I))\s*$", before)
+            if speaking and ("\u201c" in before + after or any(bylines)):
                 return True
     return False
 
@@ -173,6 +194,7 @@ def _someone_else_speaks(quote: str, url: str, company: str, scan: Scan | None =
     "Our revenue went x6 thanks to Salesflare". So is a first-person quote on a customer story page. Neither is theirs."""
     name = re.sub(r"(?<=\w)\.(?=\w)", "", company).lower()
     text = re.sub(r"(?<=\w)\.(?=\w)", "", quote).lower()
+    opening = None
     if name:
         opening = re.match(rf"(?:the\s+)?{re.escape(name)}(?!\w)", text)
         allowed = opening.end() - len(name) if opening else -1  # Only where the quote starts on their name.
@@ -180,11 +202,11 @@ def _someone_else_speaks(quote: str, url: str, company: str, scan: Scan | None =
             return True
     path = re.sub(r"^https?://[^/]+", "", url or "")
     if not _STORY_PAGE.search(path):  # Seen live: "Our outbound success rate increased by 30%" was a customer's, on /pricing.
-        return bool(_FIRST_PERSON.search(quote)) and _beside_a_byline(scan, url, quote)
+        return _beside_a_byline(scan, url, quote)
     # A story page is about their customer: "Default replaced a clunky LeanData + Marketo setup" happened at People Data
-    # Labs, and "between Cortex's existing systems" is Cortex's stack. Said to them alone, it reads as their own. One
-    # customer's story, at /case-study/cortex, is theirs from its first line to its last.
-    if re.search(r"/(?:customers?|case-stud[\w-]*|testimonials?|stories|success[\w-]*)/[^/?#]+", path, re.IGNORECASE):
+    # Labs, and "between Cortex's existing systems" is Cortex's stack. Said to them alone, it reads as their own. On a list
+    # of stories only a quote that starts on their own name and names no one else is theirs.
+    if _ONE_STORY.search(path) or not (name and opening):
         return True
     own = set(re.findall(r"[a-z0-9]+", name))
     others = [word for word in re.findall(r"[A-Za-z0-9][\w&'’-]*", quote)[1:]
@@ -203,7 +225,7 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
             continue
         line, quote, url = _sentence(clean(entry.get("line"), 400)), clean(entry.get("quote"), 500), clean(entry.get("url"), 2000)
         # A stat tile's meaning is in the label beside it: "5000+ Salespeople" counts their users, not their staff.
-        good = (line and len(line) <= MAX_LINE_CHARS and len(quote.split()) >= 3 and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
+        good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _HAS_PASSIVE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
                 and not _NO_SUBJECT_OPENING.match(line)
                 and quote_is_on_page(scan, url, quote) and line_is_supported(line, quote, person)
                 and not _someone_else_speaks(quote, url, str(person.get("company") or ""), scan)
@@ -484,7 +506,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
                     return None, f"{where}: name {brief['product_name']} in the first claim."
                 cited += has_source
                 asked += sentence.endswith("?")
-                conditions += bool(re.match(r"if\b", sentence, re.IGNORECASE))
+                conditions += bool(re.match(r"if\b", sentence, re.IGNORECASE)) and not sentence.endswith("?")
         if conditions > 1:  # Seen live: "If your reps spend hours... If many of your contacts..." reads like a form.
             return None, f"{where} starts two sentences with If. Keep one."
         if not cited:
