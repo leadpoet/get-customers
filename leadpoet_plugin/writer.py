@@ -393,9 +393,20 @@ _OWN_PARTS = frozenset({"sales", "team", "teams", "sdr", "sdrs", "ae", "aes", "b
                         "workforce", "valuation", "ceo", "cro", "cfo", "coo", "cto", "cmo", "founder", "founders", "cofounder", "board"})
 
 
+_OWN_PRODUCTS = frozenset({"platform", "product", "products", "app", "software", "api", "tool", "tools"})
+_THIRD_PARTIES = frozenset({"competitor", "competitors", "rival", "rivals", "customer", "customers", "client", "clients", "partner", "partners",
+                            "investor", "investors", "backer", "backers", "parent", "subsidiary", "acquirer", "vendor", "vendors", "supplier", "suppliers"})
+
+
 def _owned(words: list[str], at: int) -> bool:
-    """ "Zuma's customer base grew" is theirs too; "Zuma's customer Acme raised" is Acme's news (run 32)."""
-    return at < len(words) and (words[at] in _OWN_PARTS or words[at] in ("customer", "user", "client") and words[at + 1:at + 2] in (["base"], ["count"]))
+    """ "Zuma's customer base grew" is theirs too; "Zuma's customer Acme raised" is Acme's news (run 32).
+
+    So is "Persefoni's carbon accounting platform was adopted" (run 33), but not "Ramp's competitor Beta's platform"."""
+    if at < len(words) and (words[at] in _OWN_PARTS or words[at] in ("customer", "user", "client") and words[at + 1:at + 2] in (["base"], ["count"])):
+        return True
+    ahead = words[at:at + 4]
+    return any(word in _OWN_PRODUCTS and not _THIRD_PARTIES.intersection(ahead[:used]) and all("'" not in w for w in ahead[:used])
+               for used, word in enumerate(ahead))
 
 
 def _own_possessive(words: list[str], name: list[str]) -> list[str]:
