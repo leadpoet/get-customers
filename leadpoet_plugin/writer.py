@@ -586,6 +586,7 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     show they are evaluating us" is not doubt about the event. Doubt about the evidence anywhere still means no line."""
     note = re.sub(r"\s+[—–]\s+", ", ", tidy_note(person.get("why"), str(person.get("company") or "")))
     note = re.sub(r"(?<=[\w%])[–—](?=[$€£]?\d)", " to ", note)  # Seen live, run 21: "$50M–$500M" opened no email, which allows no dash.  # Seen live: "hired a VP of Sales — its first — and" could not be restated.
+    note = re.sub(r"(?<=[A-Za-z.])–(?=[A-Za-z])", "-", note)  # Run 43: "a Mexico–U.S. freight forwarder" opened no email.
     # Seen live: "is hiring SDRs; its job post asks" came back as "SDRs, and its job post asks", which no longer matched.
     note = re.sub(r";\s+", ", ", re.sub(r";\s+(?!(?:and|but|so|yet|or)\b)", ", and ", note))
     signal = _sentence(_INFERENCE.split(_LEADING_WHEN.sub("", lead_sentence(note), count=1), 1)[0].rstrip(" ,;"))

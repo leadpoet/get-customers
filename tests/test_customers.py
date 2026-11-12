@@ -1798,6 +1798,10 @@ class SignalOpenerTests(unittest.TestCase):
             self.assertEqual(lines, [line], company)
             self.assertNotIn("&amp;", why)
             self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper", "CityDetect", "Ashby", "Zuma", "Persefoni", "Vetcove", "Kleer", "Archy", "Popmenu", "Valyant", "ClearCOGS", "Downtobid", "Gem", "Newtrul")), why)
+        # Run 43: the model kept the note's "Mexico–U.S.", and an email allows no dash.
+        dashed = "Cargado, a Mexico–U.S. cross-border freight forwarder, opened a Monterrey hub in 2026."
+        _, lines = opener("Cargado", "https://www.cargado.com", dashed + tail, dashed)
+        self.assertEqual(lines, [dashed.replace("–", "-")])
         # Run 28: the model's "has hired 2 AEs and 4 SDRs in Q3 2026" is not English; the note's own "hired" opens instead.
         _, lines = opener("Arable", "https://www.arable.com", "Arable hired 2 AEs and 4 SDRs in Q3 2026." + tail,
                           "Arable has hired 2 AEs and 4 SDRs in Q3 2026.")
