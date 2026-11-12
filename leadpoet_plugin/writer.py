@@ -517,6 +517,7 @@ def _is_old_news(text: str, today: datetime.date | None = None) -> bool:
     """A dated event more than six months old is not why someone writes now. Seen live: "hired a VP of Sales in March 2025"."""
     today = today or datetime.date.today()
     dates = []
+    text = re.sub(r"\bsince\s+(?:(?:early|mid|late)[\s-]+)?(?:\w+\s+)?\d{4}\b", "", text, flags=re.IGNORECASE)  # Run 37: "tripled since 2024" runs to now.
     for month, quarter, year in _DATED.findall(text):
         number = _MONTH_NUMBERS.get(month.lower()) or (int(quarter) * 3 if quarter else 12)
         dates.append(datetime.date(int(year), number, 28))
@@ -524,8 +525,9 @@ def _is_old_news(text: str, today: datetime.date | None = None) -> bool:
 
 
 # Seen live, run 28: "launched a self-serve plan" is a pricing plan, not a plan to do something. "Its plans to open" still is.
+# Run 37: so is "a dental membership plan startup". A verb's object still marks a plan to act: "its sales team plans a launch".
 _PLAN_NOUN = re.compile(r"\b(?:a|an|the|its|their|new|free|paid|pricing|self-serve|starter|pro|enterprise|team|business|annual|monthly)\s+"
-                        r"(?:[\w-]+\s+)?plans?\b(?!\s+(?:to|for)\b)", re.IGNORECASE)
+                        r"(?:(?:[\w-]+\s+)?plans?|(?:[\w-]+\s+){2}plan)\b(?!\s+(?:to|for|a|an|the|its|their)\b)", re.IGNORECASE)
 # Seen live, run 28: "is hiring SDRs, per its careers page, to sell" told them where we looked, in an email to them.
 _WHERE_SEEN = re.compile(r",?\s*\b(?:per|according to|as seen on|as listed on|as posted on)\s+(?:its|their|the company's)\s+"
                          r"(?:careers?|jobs?|hiring|LinkedIn|website|site|blog)(?:\s+(?:page|board|posts?|postings?|listings?))?\b,?", re.IGNORECASE)

@@ -1778,11 +1778,14 @@ class SignalOpenerTests(unittest.TestCase):
                 ("Persefoni", "https://www.persefoni.com", "Persefoni's carbon accounting platform was adopted by 30+ public companies in 2026.",
                  "Persefoni's carbon accounting platform was adopted by 30+ public companies in 2026."),  # Run 33.
                 ("Vetcove", "https://www.vetcove.com", "Vetcove's marketplace now serves more than 10,000 clinics.",
-                 "Vetcove's marketplace now serves more than 10,000 clinics.")):  # Run 34.
+                 "Vetcove's marketplace now serves more than 10,000 clinics."),  # Run 34.
+                ("Kleer", "https://www.kleer.com", "Kleer, a dental membership plan startup, raised an $8M seed round in 2026.",  # Run 37.
+                 "Kleer, a dental membership plan startup, raised an $8M seed round in 2026."),
+                ("Archy", "https://www.archy.com", "Archy tripled its customer count since 2024.", "Archy tripled its customer count since 2024.")):  # Run 37.
             why, lines = opener(company, site, note + tail, line)
             self.assertEqual(lines, [line], company)
             self.assertNotIn("&amp;", why)
-            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper", "CityDetect", "Ashby", "Zuma", "Persefoni", "Vetcove")), why)
+            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper", "CityDetect", "Ashby", "Zuma", "Persefoni", "Vetcove", "Kleer", "Archy")), why)
         # Run 28: the model's "has hired 2 AEs and 4 SDRs in Q3 2026" is not English; the note's own "hired" opens instead.
         _, lines = opener("Arable", "https://www.arable.com", "Arable hired 2 AEs and 4 SDRs in Q3 2026." + tail,
                           "Arable has hired 2 AEs and 4 SDRs in Q3 2026.")
@@ -1792,6 +1795,8 @@ class SignalOpenerTests(unittest.TestCase):
         self.assertEqual(lines, [])  # Acme's news, not Zuma's.
         for note in ("Zuma's competitor Beta's platform was adopted by 30 banks.", "Zuma's partner Acme software raised $5M.", "Zuma's customer Acme's marketplace raised $5M."):
             self.assertEqual(opener("Zuma", "https://www.getzuma.com", note + tail, note)[1], [], note)  # Someone else's product.
+        for note in ("Zuma's sales team plans a launch in 2026.", "Zuma has grown 10x since 2024 and hired a CRO in March 2025."):
+            self.assertEqual(opener("Zuma", "https://www.getzuma.com", note + tail, note)[1], [], note)  # A plan, and old news.
         self.assertEqual(signal_opener(SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps(
             {"line": "Ashby's CEO said the company will double its sales team."}))), {"company": "Ashby", "role": "CEO",
             "why": "Ashby's CEO said the company will double its sales team."})[0], [])
