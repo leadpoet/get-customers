@@ -688,12 +688,18 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
         claims: list[str] = []
         condition: set[str] = set()
         for line in body.splitlines():
+            named_last = False
             for sentence in re.split(r"(?<=[.!?])\s+", line.strip()):
                 if not sentence:
                     continue
                 problem, has_source = _sentence_problem(sentence, brief, proof_words)
                 if problem:
                     return None, f"{where}: {problem}"
+                # Seen live, run 22: "Leadpoet lets you turn buying signals into conversations. Leadpoet is a B2B ..." reads stiff.
+                named = bool(re.match(rf"{re.escape(brief['product_name'])}\b", sentence, re.IGNORECASE))
+                if named and named_last and not safe_subjects:
+                    return None, f"{where} starts two sentences in a row with {brief['product_name']}. Start the second with It."
+                named_last = named
                 if has_source and not cited and re.match(r"(?:it|its|if[^,]*,\s*it)\b", _CITATION.sub("", sentence).strip(), re.IGNORECASE):
                     return None, f"{where}: name {brief['product_name']} in the first claim."
                 cited += has_source

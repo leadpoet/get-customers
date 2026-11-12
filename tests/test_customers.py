@@ -1206,6 +1206,16 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn("[1]", emails[0]["body"])
         self.assertIn("in minutes.", emails[0]["body"])
 
+    def test_the_seller_is_not_named_twice_in_a_row(self):
+        """Seen live, run 22: "Leadpoet lets you turn buying signals into conversations. Leadpoet is a B2B lead sourcing ... platform"."""
+        brief = {"product_name": "Stripe", "facts": [{"text": "t", "said_by": "seller", "quote": "Accept payments online in minutes"},
+                                                     {"text": "t", "said_by": "seller", "quote": "Stripe sends invoices"}]}
+        once = "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1]. It sends invoices [2].\nWorth a call?"
+        self.assertTrue(validate_sequence(self.emails(once), brief))
+        self.assertIsNone(validate_sequence(self.emails(once.replace("It sends", "Stripe sends")), brief))
+        apart = "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nStripe sends invoices [2].\nWorth a call?"
+        self.assertTrue(validate_sequence(self.emails(apart), brief))  # Two paragraphs may each open on the name.
+
     def test_only_one_email_asks_who_handles_it(self):
         """Seen live, run 22: email two asked "Who handles outbound prospecting?" and email three "Who handles lead research?"."""
         def mail(second, third):
