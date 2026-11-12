@@ -471,6 +471,18 @@ def _is_old_news(text: str, today: datetime.date | None = None) -> bool:
     return bool(dates) and (today - max(dates)).days > 183
 
 
+# Seen live, run 28: "launched a self-serve plan" is a pricing plan, not a plan to do something. "Its plans to open" still is.
+_PLAN_NOUN = re.compile(r"\b(?:a|an|the|its|their|new|free|paid|pricing|self-serve|starter|pro|enterprise|team|business|annual|monthly)\s+"
+                        r"(?:[\w-]+\s+)?plans?\b(?!\s+(?:to|for)\b)", re.IGNORECASE)
+# Seen live, run 28: "is hiring SDRs, per its careers page, to sell" told them where we looked, in an email to them.
+_WHERE_SEEN = re.compile(r",?\s*\b(?:per|according to|as seen on|as listed on|as posted on)\s+(?:its|their|the company's)\s+"
+                         r"(?:careers?|jobs?|hiring|LinkedIn|website|site|blog)(?:\s+(?:page|board|posts?|postings?|listings?))?\b,?", re.IGNORECASE)
+# "Has hired ... in Q3 2026" is not English: a dated event takes the past tense (seen live, run 28: the note said "hired").
+_PERFECT_WITH_DATE = re.compile(r"\b(?:has|have)\s+\w+(?:ed|en|wn|ght|id|ne|ung|ook|ew|ade|ent|ot|old|ilt)\b[^.]*?\b(?:in|on|during|last)\s+"
+                                r"(?:Q[1-4]\b|H[12]\b|(?:January|February|March|April|June|July|August|September|October|November|December|"
+                                r"Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\b|(?:week|month|quarter|year)\b)")
+
+
 def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     """The buying signal Leadpoet found, as the first line. The note is the source, so the line may only restate it.
 
@@ -481,13 +493,14 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     # Seen live: "is hiring SDRs; its job post asks" came back as "SDRs, and its job post asks", which no longer matched.
     note = re.sub(r";\s+", ", ", re.sub(r";\s+(?!(?:and|but|so|yet|or)\b)", ", and ", note))
     signal = _sentence(_INFERENCE.split(_LEADING_WHEN.sub("", lead_sentence(note), count=1), 1)[0].rstrip(" ,;"))
-    if not signal or _HEDGE.search(_MONTH_MAY.sub("", signal)) or _DOUBT.search(note):  # A guess is not a reason to write.
+    if not signal or _HEDGE.search(_PLAN_NOUN.sub("", _MONTH_MAY.sub("", signal))) or _DOUBT.search(note):  # A guess is not a reason to write.
         return [], 0
     # "(picklerobot.com/careers)" or "(see https://...)" is where the event was seen, not part of it, and the line must restate it word for word.
     signal = re.sub(r"\s*\((?:(?:see|via|source:?)\s+)?(?:https?://)?(?:www\.)?[\w-]+(?:\.[\w-]+)+(?:/[^\s)]*)?\)", "", signal)
     # Seen live, run 23: "posted three SDR roles at truewind.ai/careers in November" lost its line, which allows no link.
     signal = re.sub(r"\s+(?:at|on|via)\s+(?:https?://)?(?:www\.)?[a-z][\w-]*(?:\.[\w-]+)*\.[a-z]{2,}(?:/[^\s,;)]*[^\s,;).])?(?=[\s,;).]|$)",
                     "", signal, flags=re.IGNORECASE)
+    signal = re.sub(r"\s+([.,])", r"\1", _WHERE_SEEN.sub(lambda seen: "," if seen.group().endswith(",") and not seen.group().startswith(",") else "", signal))
     if _names_them(signal, person) or _is_old_news(signal):
         return [], 0
     record = str(person.get("company") or "")
@@ -519,7 +532,8 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     def good(text: str) -> bool:
         return (len(text) <= MAX_LINE_CHARS and ":" not in text and own in (_name_in_note(text, company) or "")  # As they write it: not "vareto is hiring".
                 and not _has_forbidden(text, company) and not _PLACEHOLDER.search(text)
-                and restates_note(text, signal, company) and line_is_supported(text, signal, {**person, "company": company}))
+                and restates_note(text, signal, company) and line_is_supported(text, signal, {**person, "company": company})
+                and (text == signal or not _PERFECT_WITH_DATE.search(text)))
     # The model's line says it is an event. Seen live, one time in eight: "Dover grew" came back as "Dover has grown",
     # and a weaker line from their site opened instead. A note that already opens on their name passes as written.
     line = next((text for text in dict.fromkeys((line, signal)) if good(text)), "")

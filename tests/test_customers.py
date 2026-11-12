@@ -1765,11 +1765,22 @@ class SignalOpenerTests(unittest.TestCase):
                 ("Mercoa", "https://mercoa.com", "Mercoa (YC W23) raised a $12M seed and is hiring its first two SDRs.",  # Run 23.
                  "Mercoa raised a $12M seed and is hiring its first two SDRs."),
                 ("Truewind", "https://www.truewind.ai", "Truewind posted three SDR roles at truewind.ai/careers in November 2026.",  # Run 23.
-                 "Truewind posted three SDR roles in November 2026.")):
+                 "Truewind posted three SDR roles in November 2026."),
+                ("Agrology", "https://agrology.ag", "Agrology launched a self-serve plan on Nov. 3, 2026 and is hiring its first SDR.",  # Run 28.
+                 "Agrology launched a self-serve plan on Nov. 3, 2026 and is hiring its first SDR."),
+                ("Copper Labs", "https://www.copperlabs.com", "Copper Labs is hiring SDRs, per its careers page, to sell to electric co-ops.",
+                 "Copper Labs is hiring SDRs to sell to electric co-ops.")):
             why, lines = opener(company, site, note + tail, line)
             self.assertEqual(lines, [line], company)
             self.assertNotIn("&amp;", why)
-            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind")), why)
+            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper")), why)
+        # Run 28: the model's "has hired 2 AEs and 4 SDRs in Q3 2026" is not English; the note's own "hired" opens instead.
+        _, lines = opener("Arable", "https://www.arable.com", "Arable hired 2 AEs and 4 SDRs in Q3 2026." + tail,
+                          "Arable has hired 2 AEs and 4 SDRs in Q3 2026.")
+        self.assertEqual(lines, ["Arable hired 2 AEs and 4 SDRs in Q3 2026."])
+        _, lines = opener("Abound", "https://www.getabound.com", "Abound doubled its SDR team in H1 2026 and plans ~40 more hires." + tail,
+                          "Abound doubled its SDR team in H1 2026 and plans ~40 more hires.")
+        self.assertEqual(lines, [])  # A plan to hire is still a guess.
         # A note saved before it was tidied still opens as it should read.
         llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": "Vareto is hiring two SDRs."})))
         self.assertEqual(signal_opener(llm, {"company": "Vareto", "why": "vareto is hiring two SDRs."})[0][0]["line"], "Vareto is hiring two SDRs.")
