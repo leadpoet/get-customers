@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import re
 import urllib.parse
 from typing import Any
@@ -369,11 +370,45 @@ def _site_carries(site: Any, word: str) -> bool:
     return len(word) >= 3 and any(label in names for label in host.lower().split(".")[:-1])
 
 
-def _names_them(text: str, name: Any) -> bool:
-    """The note tells their story in the third person. Read back to them, it sounds like a form letter."""
-    parts = str(name or "").split()
+_ROLE_WORDS = ((r"\bvice president\b", "vp"), (r"\bchief revenue officer\b", "cro"), (r"\bchief executive officer\b", "ceo"),
+               (r"\bchief sales officer\b", "cso"), (r"[^a-z0-9& ]+", " "))
+
+
+def _role_key(text: str) -> str:
+    key = f" {text.lower()} "
+    for pattern, short in _ROLE_WORDS:
+        key = re.sub(pattern, short, key)
+    return " ".join(key.split())
+
+
+def _names_them(text: str, person: dict) -> bool:
+    """The note tells their own story in the third person. Read back to them, it sounds like a form letter.
+
+    Seen live: "Pod Foods hired Lee Ann Ford-Harris", "Velo3D named Ms. Rossi Head of Sales" to Gia Rossi, and
+    "Carbon hired a VP of Sales" to Carbon's VP of Sales."""
+    parts = str(person.get("name") or "").split()
     word = lambda part: re.search(rf"(?<![\w-]){re.escape(part.strip(',.'))}(?![\w-])", text, re.IGNORECASE)
-    return len(parts) > 1 and bool(word(parts[0]) and word(parts[-1]))
+    if len(parts) > 1 and (word(parts[0]) and word(parts[-1]) or re.search(
+            rf"\b(?:Mr|Ms|Mrs|Mx|Dr)\.?\s+{re.escape(parts[-1].strip(',.'))}(?![\w-])", text)):
+        return True
+    role = _role_key(str(person.get("role") or ""))
+    return bool(role) and f" {role} " in f" {_role_key(text)} "
+
+
+_MONTH_NUMBERS = {name: index for index, names in enumerate(
+    ("jan january", "feb february", "mar march", "apr april", "may", "jun june", "jul july", "aug august",
+     "sep sept september", "oct october", "nov november", "dec december"), 1) for name in names.split()}
+_DATED = re.compile(r"(?:\b([A-Za-z]{3,9})\.?\s+(?:\d{1,2},?\s+)?|\bQ([1-4])\s+)?\b(20\d\d)\b")
+
+
+def _is_old_news(text: str, today: datetime.date | None = None) -> bool:
+    """A dated event more than six months old is not why someone writes now. Seen live: "hired a VP of Sales in March 2025"."""
+    today = today or datetime.date.today()
+    dates = []
+    for month, quarter, year in _DATED.findall(text):
+        number = _MONTH_NUMBERS.get(month.lower()) or (int(quarter) * 3 if quarter else 12)
+        dates.append(datetime.date(int(year), number, 28))
+    return bool(dates) and (today - max(dates)).days > 183
 
 
 def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
@@ -385,7 +420,9 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     signal = _sentence(_INFERENCE.split(_LEADING_WHEN.sub("", lead_sentence(note), count=1), 1)[0].rstrip(" ,;"))
     if not signal or _HEDGE.search(_MONTH_MAY.sub("", signal)) or _DOUBT.search(note):  # A guess is not a reason to write.
         return [], 0
-    if _names_them(signal, person.get("name")):  # Seen live: her own email opened "Pod Foods hired Lee Ann Ford-Harris".
+    # "(picklerobot.com/careers)" is where the event was seen, not part of it, and the line must restate it word for word.
+    signal = re.sub(r"\s*\((?:https?://)?(?:www\.)?[\w-]+(?:\.[\w-]+)+(?:/[^\s)]*)?\)", "", signal)
+    if _names_them(signal, person) or _is_old_news(signal):
         return [], 0
     record = str(person.get("company") or "")
     # Notes write the full record ("Alco Building Solutions (ABS) is") or drop its tagline ("AG Adjustments is" for AG

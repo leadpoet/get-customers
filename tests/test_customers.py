@@ -1723,6 +1723,34 @@ class SignalOpenerTests(unittest.TestCase):
         self.assertEqual(opener("Xena Holt", hired), [hired])
         self.assertEqual(opener("Ann Ford", hired), [hired])
         self.assertEqual(opener("Cher", "Pod Foods hired Cher as CRO in May."), ["Pod Foods hired Cher as CRO in May."])
+        # Seen live: a title and surname, or their own role, is them too.
+        def to(name, role, company, sentence):
+            llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": sentence})))
+            return [row["line"] for row in signal_opener(llm, {"company": company, "name": name, "role": role, "why": sentence})[0]]
+        named = "Velo3D named Ms. Rossi Head of Sales in October 2026, and she is hiring four SDRs."
+        self.assertEqual(to("Gia Rossi", "Head of Sales", "Velo3D", named), [])
+        self.assertEqual(to("Eli Shaw", "VP of Sales", "Carbon", "Carbon hired a VP of Sales in October 2026."), [])
+        self.assertEqual(to("Eli Shaw", "VP of Sales", "Carbon", "Carbon hired a Vice President of Sales in October 2026."), [])
+        self.assertEqual(to("Kim Tran", "Head of Sales", "Augury", "Augury hired a new Head of Growth in October 2026."),
+                         ["Augury hired a new Head of Growth in October 2026."])
+        self.assertEqual(to("Ana Rossi", "VP of Sales", "Velo3D", named.replace("Ms. Rossi", "Mr. Rossini")), [named.replace("Ms. Rossi", "Mr. Rossini")])
+
+    def test_old_news_and_citations(self):
+        """Seen live: "hired a VP of Sales in March 2025" opened an email 20 months later, and a "(site.com/careers)"
+        citation kept a fresh posting from opening at all."""
+        import datetime
+        from leadpoet_plugin.writer import _is_old_news, signal_opener
+        today = datetime.date(2026, 11, 12)
+        for text in ("Relativity Space hired a VP of Sales in March 2025.", "Acme raised $70M in 2024.", "Acme hired a CRO on Oct. 6, 2025."):
+            self.assertTrue(_is_old_news(text, today), text)
+        for text in ("Acme raised $70M in October 2026.", "Acme plans to double outbound in Q4 2026.", "Acme is hiring four SDRs.",
+                     "Acme hired a CRO in June 2026, and in March 2025 it opened Denver."):
+            self.assertFalse(_is_old_news(text, today), text)
+        this_month = datetime.date.today().strftime("%B %Y")
+        note = f"Pickle Robot posted an SDR role (picklerobot.com/careers) in {this_month} that asks reps to find buyers by hand. More."
+        line = f"Pickle Robot posted an SDR role in {this_month} that asks reps to find buyers by hand."
+        llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": line})))
+        self.assertEqual([row["line"] for row in signal_opener(llm, {"company": "Pickle Robot", "why": note})[0]], [line])
 
     def test_the_opener_stops_before_leadpoets_reading_of_the_event(self):
         """30% of real openers told the prospect "indicating a need to expand their sales efforts"."""
