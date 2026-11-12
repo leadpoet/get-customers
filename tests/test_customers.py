@@ -315,6 +315,25 @@ class FindCase(Case):
         self.assertNotIn("N/A", text)
         self.assertEqual([person["why"] != "" for person in self.customers.job()["people"]], [True, False, False])
 
+    def test_each_company_gets_its_best_buyer_and_the_ping_says_where_the_rest_are(self):
+        """Leadpoet delivers two contacts a company. Both were paid for, so the extra ones can't vanish without a word."""
+        self.customers.handle("go", self.code("go"))
+        real = self.api.pipeline_contacts
+        long_note = ("Posted a night dispatcher role on Oct 28 that asks for clean shift handovers. The team runs three depots, "
+                     "so handovers cross sites every night. The evidence confirms the hiring; it does not show that they are evaluating Sunnyday.")
+        self.api.pipeline_contacts = lambda icp: [
+            *({**row, "id": row["id"] + "-office", "name": "Sam Office", "role": "Office Manager",
+               "email": "sam@" + row["email"].split("@")[1]} for row in real(icp)),  # Arrives first, fits worse.
+            *({**row, "icp_details": long_note} if row["company"] == "Pinecrest Freight" else row for row in real(icp))]
+        self.api.state = "completed"
+        text = self.customers.advance()
+        self.assertIn("6 verified contacts at 3 companies are in.", text)
+        self.assertIn("the other 3 are in your Leadpoet pipeline", text)
+        self.assertIn("https://leadpoet.com/dashboard/pipeline", text)
+        self.assertEqual([person["name"] for person in self.customers.job()["people"]], ["Marcus Oyelaran", "Priya Raman", "Sam Office"])
+        self.assertIn("• Pinecrest Freight: Posted a night dispatcher role on Oct 28 that asks for clean shift handovers.\n", text)
+        self.assertNotIn("three depots", text)  # The phone shows the event, not the whole note.
+
     def test_another_workspaces_contacts_are_ignored(self):
         self.customers.handle("go", self.code("go"))
         real = self.api.pipeline_contacts
@@ -354,7 +373,8 @@ class WriteCase(Case):
     def test_the_buying_signal_opens_and_names_its_source(self):
         self.to_review()
         self.assertIn("Personal line: Pinecrest Freight posted a night dispatcher role on Oct 28 that asks for clean shift handovers.\n"
-                      "Source: Leadpoet's note above", self.text)
+                      "Source: Leadpoet's research on why they fit", self.text)
+        self.assertNotIn("Why them: Posted a night dispatcher", self.text)  # Said once, not twice.
 
     def test_no_personal_line_leaves_no_gap(self):
         self.to_review()
@@ -452,6 +472,19 @@ class LaunchCase(Case):
             raise ApiError("down", 503)
         self.api.queued_messages = broken
         self.assertIn("Live.", self.customers.handle("", ""))
+
+    def test_a_check_that_finishes_the_launch_says_live_once_and_approvals_go_quietly(self):
+        """Leadpoet prepares drafts a few at a time. A ping per batch of approvals is noise; Live is the news."""
+        from unittest import mock
+        self.to_review()
+        with mock.patch("leadpoet_plugin.customers.MAX_LAUNCHES_PER_RUN", 1):
+            text = self.customers.handle("all", self.all_code())
+            self.assertIn("Launching: 1 of 3", text)
+            self.assertNotIn("on the way", text)
+            self.assertEqual(self.customers.advance(), "")
+            self.assertIn("Live. 3 sequences running", self.customers.advance())
+            self.assertEqual(self.customers.advance(), "")
+        self.assertEqual(len(self.api.approved), 3)
 
     def test_missing_sender_details_block_the_launch(self):
         self.to_review()
@@ -1182,7 +1215,23 @@ class EvidenceTests(unittest.TestCase):
         self.assertFalse(lines("Remote switched their whole team to Linear this spring."))
         self.assertFalse(lines("Linear, Remote switched their whole team to Linear this spring."))
         self.assertFalse(lines("Linear Remote switched their whole team to Linear this spring."))
-        self.assertTrue(lines("Linear switched their whole team this spring."))
+        self.assertFalse(lines("Linear switched their whole team this spring."))  # Remote switched, to Linear.
+
+    def test_a_quote_about_them_from_someone_else_never_becomes_their_line(self):
+        """Seen live: a customer's "Our revenue went x6 thanks to Salesflare" became "Salesflare revenue went x6"."""
+        def lines(quote, line, url="https://salesflare.com/", company="Salesflare"):
+            scan = Scan("salesflare.com", [Page(url, "t", quote)])
+            return validate_lines({"lines": [{"line": line, "quote": quote, "url": url}]}, scan, {"company": company})[0]
+        self.assertFalse(lines("Our revenue went x6 thanks to Salesflare through better follow up",
+                               "Salesflare revenue went x6 thanks to Salesflare through better follow up.", "https://salesflare.com/customers"))
+        self.assertFalse(lines("Our revenue went x6 through better follow up", "Salesflare revenue went x6 through better follow up.",
+                               "https://salesflare.com/customers/acme"))
+        self.assertFalse(lines("20,000+ other sales teams run their entire outbound with lemlist",
+                               "lemlist has 20,000+ other sales teams run their entire outbound.", company="lemlist"))
+        self.assertTrue(lines("Salesflare customers close 3x more deals", "Salesflare customers close 3x more deals."))
+        self.assertTrue(lines("We have implemented an AI trust framework", "Salesflare has implemented an AI trust framework.",
+                              "https://salesflare.com/about-us"))
+        self.assertTrue(lines("Trusted by 3,000+ businesses", "Salesflare is trusted by 3,000+ businesses."))
 
     def test_a_negative_elsewhere_in_the_proof_does_not_block_a_subject(self):
         """One "no" on any page used to refuse every subject, and with it the whole sequence on 6 of 19 real sites."""
@@ -1422,6 +1471,26 @@ class SignalOpenerTests(unittest.TestCase):
         self.assertEqual(self.line("Ramp is likely hiring SDRs.", why="Is likely hiring SDRs."), ([], 0))
         self.assertEqual(self.line("Ramp is hiring a Head of Outbound.", why="Hiring a Head of Outbound.")[0][0]["line"],
                          "Ramp is hiring a Head of Outbound.")
+
+    def test_a_full_length_note_opens_with_its_first_sentence(self):
+        """Real notes run several sentences and end by saying the evidence doesn't show they're evaluating us."""
+        note = ("Ramp is hiring two SDRs for outbound into mid-market finance teams. The postings ask reps to build lists by hand. "
+                "The evidence confirms an outbound team; it does not show that Ramp is evaluating Leadpoet.")
+        lines, refused = self.line("Ramp is hiring two SDRs for outbound into mid-market finance teams.", why=note)
+        self.assertEqual((lines[0]["line"], lines[0]["quote"], refused),
+                         ("Ramp is hiring two SDRs for outbound into mid-market finance teams.",
+                          "Ramp is hiring two SDRs for outbound into mid-market finance teams.", 0))
+        self.assertEqual(self.line("Ramp is hiring two SDRs.", why=note), ([], 1))  # Still word for word.
+        self.assertEqual(self.line("Ramp may be starting outbound.", why="Ramp may be starting outbound. It posted one role."), ([], 0))
+        self.assertEqual(self.line("Ramp posted one AE role.", why="Ramp posted one AE role. The evidence is thin."), ([], 0))
+        self.assertEqual(self.line("Ramp Inc. hired a CRO.", why="Ramp Inc. hired a CRO in May. It is building a team.")[0], [])
+
+    def test_the_first_sentence_survives_abbreviations(self):
+        from leadpoet_plugin.writer import lead_sentence, short_note
+        self.assertEqual(lead_sentence("Acme Inc. opened a U.S. office in May. It hires now."), "Acme Inc. opened a U.S. office in May.")
+        self.assertEqual(lead_sentence("Raised $9.1M led by J. Smith. More here."), "Raised $9.1M led by J. Smith.")
+        self.assertTrue(short_note("word " * 80).endswith("…"))
+        self.assertLessEqual(len(short_note("word " * 80)), 221)
 
     def test_the_signal_opens_and_a_site_fact_stands_in_without_one(self):
         customers = Customers(StockApi(), Store(Path(tempfile.mkdtemp()) / "a.db"), StockLlm(), stock_fetch)

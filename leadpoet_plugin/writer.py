@@ -147,6 +147,23 @@ def _opens_on_company(line: str, person: dict) -> bool:
     return bool(used) and not tokens[used - 1].endswith(",") and not next_word[:1].isupper()  # "Clay Intercom grew" is someone else's story.
 
 
+_STORY_PAGE = re.compile(r"/(?:customers?|case-stud|testimonials?|reviews?|stories|success)", re.IGNORECASE)
+
+
+def _someone_else_speaks(quote: str, url: str, company: str) -> bool:
+    """A quote that names the company after its first words is about them from outside: "Remote switched to Linear",
+    "Our revenue went x6 thanks to Salesflare". So is a first-person quote on a customer story page. Neither is theirs."""
+    name = re.sub(r"(?<=\w)\.(?=\w)", "", company).lower()
+    text = re.sub(r"(?<=\w)\.(?=\w)", "", quote).lower()
+    if name:
+        opening = re.match(rf"(?:the\s+)?{re.escape(name)}(?!\w)", text)
+        allowed = opening.end() - len(name) if opening else -1  # Only where the quote starts on their name.
+        if any(found.start() != allowed for found in re.finditer(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text)):  # "Pilot-prepared" is theirs.
+            return True
+    path = re.sub(r"^https?://[^/]+", "", url or "")
+    return bool(_FIRST_PERSON.search(quote) and _STORY_PAGE.search(path))
+
+
 def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dict], int]:
     """Return the lines that passed and how many were thrown out."""
     entries = raw.get("lines") if raw and isinstance(raw.get("lines"), list) else []
@@ -160,6 +177,7 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
         good = (line and len(line) <= MAX_LINE_CHARS and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
                 and not _NO_SUBJECT_OPENING.match(line)
                 and quote_is_on_page(scan, url, quote) and line_is_supported(line, quote, person)
+                and not _someone_else_speaks(quote, url, str(person.get("company") or ""))
                 and all(other["quote"] != quote for other in kept))
         if good and len(kept) < MAX_LINES:
             kept.append({"line": line, "quote": quote, "url": url})
@@ -175,6 +193,27 @@ def _sentence(line: str) -> str:
 _HEDGE = re.compile(r"\b(?:may|might|could|likely|probably|possibly|perhaps|plans?|planning|considering|evaluating|"
                     r"appears?|seems?|reportedly|rumou?red|expected|potential(?:ly)?)\b", re.IGNORECASE)
 _LEAD_INS = frozenset({"is", "was", "has", "had", "have", "are", "were"})
+_DOUBT = re.compile(r"\b(?:thin|unconfirmed|unverified|unclear|(?:does|do|did) not confirm|not confirmed|no longer)\b", re.IGNORECASE)
+_ABBREVIATIONS = frozenset({"inc", "co", "corp", "ltd", "llc", "st", "mr", "ms", "mrs", "dr", "jr", "sr", "vs", "no", "approx",
+                            "e.g", "i.e", "u.s", "u.k", "a.m", "p.m"})
+
+
+def lead_sentence(note: str) -> str:
+    """The note's first sentence. Leadpoet's notes open with the event at the company; the rest explains the fit."""
+    text = re.sub(r"\s+", " ", str(note or "")).strip()
+    for stop in re.finditer(r"[.!?](?=\s+[A-Z0-9\"“'(])", text):
+        word = re.findall(r"[\w.]+$", text[:stop.start()])
+        token = word[0].lower() if word else ""
+        if token in _ABBREVIATIONS or len(token) == 1:  # "Acme Inc. hired" and "J. Smith" go on.
+            continue
+        return text[:stop.end()]
+    return text
+
+
+def short_note(note: str, limit: int = MAX_LINE_CHARS) -> str:
+    """What a phone shows of a note: its first sentence, cut at a word if it runs long."""
+    first = lead_sentence(note)
+    return first if len(first) <= limit else first[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
 
 
 def _tokens(text: str) -> list[str]:
@@ -198,19 +237,23 @@ def restates_note(line: str, note: str, company: str) -> bool:
 
 
 def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
-    """The buying signal Leadpoet found, as the first line. The note is the source, so the line may only restate it."""
+    """The buying signal Leadpoet found, as the first line. The note is the source, so the line may only restate it.
+
+    Only the note's first sentence, the event itself, can open: the rest explains the fit, and a closing "it does not
+    show they are evaluating us" is not doubt about the event. Doubt about the evidence anywhere still means no line."""
     note = re.sub(r"\s+", " ", str(person.get("why") or "")).strip()
-    if not note or _HEDGE.search(note):  # A guess is not a reason to write.
+    signal = lead_sentence(note)
+    if not signal or _HEDGE.search(signal) or _DOUBT.search(note):  # A guess is not a reason to write.
         return [], 0
     company = str(person.get("company") or "")
-    raw = _complete(llm, _SIGNAL_SYSTEM, f"Company: {company}\n<note>\n{without_tag(note, 'note')}\n</note>",
+    raw = _complete(llm, _SIGNAL_SYSTEM, f"Company: {company}\n<note>\n{without_tag(signal, 'note')}\n</note>",
                     f"leadpoet signal line: {company}")
     line = _sentence(clean((raw or {}).get("line"), 400))
     if not line:
         return [], 0
     good = (len(line) <= MAX_LINE_CHARS and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, company)
-            and not _PLACEHOLDER.search(line) and restates_note(line, note, company) and line_is_supported(line, note, person))
-    return ([{"line": line, "quote": note, "url": ""}], 0) if good else ([], 1)
+            and not _PLACEHOLDER.search(line) and restates_note(line, signal, company) and line_is_supported(line, signal, person))
+    return ([{"line": line, "quote": signal, "url": ""}], 0) if good else ([], 1)
 
 
 def research_person(llm: Any, person: dict, fetcher: Any = None) -> tuple[list[dict], int]:

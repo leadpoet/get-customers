@@ -17,10 +17,11 @@ from typing import Any, Callable
 from . import brief as briefs
 from .api import ApiError
 from .website import Page, Scan, SiteError, normalize_site, profile_host, scan_site, typed_site
-from .writer import fits, render, research_person, write_sequence
+from .writer import fits, render, research_person, short_note, write_sequence
 
 LEAD_ENGINE_URL = "https://leadpoet.com/dashboard/lead-engine"
 OUTREACH_URL = "https://leadpoet.com/dashboard/outreach"
+PIPELINE_URL = "https://leadpoet.com/dashboard/pipeline"
 SIGNUP_URL = "https://leadpoet.com/auth"
 KEY_URL = "https://leadpoet.com/dashboard/account?section=integrations"
 # Hermes re-reads its key file on every message, so a key added this way works at once.
@@ -191,19 +192,33 @@ def account_note(note: object, *requests: dict | None) -> str:
     return re.sub(r"\s+", " ", note).strip()
 
 
-def _arrivals(people: list[dict]) -> str:
-    """Who arrived, one line a company, with Leadpoet's reason when it published one. Every company is listed."""
+_NOTE_SOURCE = "Source: Leadpoet's research on why they fit"
+
+
+def _from_note(person: dict) -> bool:
+    """The personal line restates Leadpoet's note, so printing the note too would say it twice."""
+    return any(not entry.get("url") for entry in person.get("lines") or [])
+
+
+def _arrivals(people: list[dict], others: int = 0) -> str:
+    """Who arrived, one line a company, with Leadpoet's reason when it published one. Every company is listed.
+
+    Leadpoet delivers more than one contact a company, and all of them were paid for, so the count says where the rest are."""
     count = len(people)
-    head = f"{count} verified contact{'s are' if count != 1 else ' is'} in."
+    if others:
+        head = (f"{count + others} verified contacts at {count} compan{'ies' if count != 1 else 'y'} are in. I'll write to the one "
+                f"whose role fits best at each; the other {others} {'are' if others != 1 else 'is'} in your Leadpoet pipeline:\n{PIPELINE_URL}\n\n")
+    else:
+        head = f"{count} verified contact{'s are' if count != 1 else ' is'} in."
     if not any(person.get("why") for person in people):
-        return head
+        return head.rstrip()
     rows, seen = [], set()
     for person in people:
-        row = f"• {person['company']}: {person.get('why') or 'Matches your profile.'}"
+        row = f"• {person['company']}: {short_note(person['why']) if person.get('why') else 'Matches your profile.'}"
         if row not in seen:
             seen.add(row)
             rows.append(row)
-    return head + " Why each company:\n" + "\n".join(rows)
+    return head + ("" if others else " ") + "Why each company:\n" + "\n".join(rows)
 
 
 class Customers:
@@ -635,20 +650,34 @@ class Customers:
         self.save(job)
 
     def _load_people(self, job: dict, request: dict) -> list[dict]:
-        rows, seen, people = self.api.pipeline_contacts(job.get("icp_id")), set(), []
-        # The live request is what the placeholder copied. The brief's own text covers a request adopted from the app.
-        asked = (request, {"request_description": briefs.description(job["brief"]), "intent_signals": briefs.signals_text(job["brief"])})
+        """One person a company, the one whose role comes first in the brief's buyers. Two near-identical emails to one
+        company read as a blast, so the rest stay in the pipeline, and the count says so."""
+        rows, best, people = self.api.pipeline_contacts(job.get("icp_id")), {}, []
+        buyers = [_squash(role).lower() for role in job["brief"].get("buyers") or [] if _squash(role)]
+
+        def rank(row: dict) -> int:
+            role = _squash(str(row.get("role") or "")).lower()
+            return next((index for index, buyer in enumerate(buyers) if buyer == role or buyer in role), len(buyers))
+
+        found: dict[str, int] = {}
         for row in rows:
             company = str(row.get("company") or "").strip().lower()
-            if (row.get("query_id") not in {job["query_id"], *job.get("query_ids", [])} or not row.get("email") or not company or company in seen
+            if (row.get("query_id") not in {job["query_id"], *job.get("query_ids", [])} or not row.get("email") or not company
                     or row.get("privacy_deleted_at") or row.get("archived_at")):
                 continue
-            seen.add(company)
+            found[company] = found.get(company, 0) + 1
+            if company not in best or rank(row) < rank(best[company]):
+                best[company] = row
+        # The live request is what the placeholder copied. The brief's own text covers a request adopted from the app.
+        asked = (request, {"request_description": briefs.description(job["brief"]), "intent_signals": briefs.signals_text(job["brief"])})
+        kept = list(best)[:COMPANIES]
+        job["others"] = sum(found[company] for company in kept) - len(kept)
+        for row in (best[company] for company in kept):
             people.append({"id": row["id"], "name": row.get("name") or "", "role": row.get("role") or "",
                            "company": row.get("company") or "", "email": row["email"], "website": row.get("website") or "",
                            "why": account_note(row.get("icp_details"), *asked),
                            "state": "research", "lines": [], "dropped": 0})
-        return people[:COMPANIES]
+        return people
 
     # Write -----------------------------------------------------------------------------------
     def _write(self, job: dict | None) -> str:
@@ -726,12 +755,12 @@ class Customers:
 
     def _emails(self, person: dict) -> list[str]:
         lines = [f"{person['name']}, {person['role']} at {person['company']}", person["email"]]
-        if person.get("why"):
-            lines.append(f"Why them: {person['why']}")
+        if person.get("why") and not _from_note(person):
+            lines.append(f"Why them: {short_note(person['why'])}")
         lines.append("")
         if person["lines"]:
             for entry in person["lines"]:
-                source = [f"Source: \"{entry['quote']}\"", entry["url"]] if entry["url"] else ["Source: Leadpoet's note above"]
+                source = [f"Source: \"{entry['quote']}\"", entry["url"]] if entry["url"] else [_NOTE_SOURCE]
                 lines += [f"Personal line: {entry['line']}", *source, ""]
         else:
             lines += ["No personal line. I couldn't prove one, so there isn't one.", ""]
@@ -770,11 +799,11 @@ class Customers:
             blocks.append("\n".join(lines))
             for person in shared:
                 row = [f"{person['name']}, {person['role']} at {person['company']}", person["email"]]
-                if person.get("why"):
-                    row.append(f"Why them: {person['why']}")
+                if person.get("why") and not _from_note(person):
+                    row.append(f"Why them: {short_note(person['why'])}")
                 for entry in person["lines"]:
                     row += [f"Personal line: {entry['line']}",
-                            f"Source: \"{entry['quote']}\" {entry['url']}" if entry["url"] else "Source: Leadpoet's note above"]
+                            f"Source: \"{entry['quote']}\" {entry['url']}" if entry["url"] else _NOTE_SOURCE]
                 if not person["lines"]:
                     row.append("No personal line I could prove, so email 1 goes without one.")
                 blocks.append("\n".join(row) + "\n")
@@ -979,7 +1008,7 @@ class Customers:
             approvals.append({"message_id": draft["id"], "kind": "message", "binding": binding})
             owners[draft["id"]] = (person, step, draft.get("review_revision"))
             steps.setdefault(person["id"], set()).add(step)
-        approved = refused = 0
+        refused = 0  # Approvals go quietly: "Live" and the next send time already say it, and a count each check would only be noise.
         for start in range(0, len(approvals), 50):
             batch = approvals[start:start + 50]
             results = self.api.approve_drafts(batch)
@@ -990,13 +1019,9 @@ class Customers:
                 if status in ("preparing", "authorized"):
                     person.setdefault("approved_touches", []).append(approval["message_id"])
                     person.setdefault("approved_steps", []).append(step)
-                    approved += 1
                 elif status and not (isinstance(result, dict) and result.get("code") in _TRY_APPROVAL_AGAIN):
                     person.setdefault("refused", {})[approval["message_id"]] = revision
                     refused += 1
-        if approved:
-            noun = f"{approved} approved email{'s' if approved != 1 else ''}"
-            notes.append(f"{noun} on the way. Replies come to /desk.")
         if refused:
             notes.append(f"Leadpoet wants a person to check {refused} email{'s' if refused != 1 else ''} first, so {'they are' if refused != 1 else 'it is'} waiting in Review:\n{OUTREACH_URL}")
         if job:
@@ -1094,7 +1119,7 @@ class Customers:
     def _parked_news(self, job: dict) -> str:
         """Commands in a background search's news must not act on the search that's open."""
         if job["stage"] == "ready":
-            return (_arrivals(job["people"]) + "\n\n"
+            return (_arrivals(job["people"], job.get("others", 0)) + "\n\n"
                     f"Open it to write their emails: /customers open {_site(job)}")
         return self._stage_text(job)
 
@@ -1172,7 +1197,7 @@ class Customers:
         if stage == "finding":
             return self._waiting(job)
         if stage == "ready":
-            return _arrivals(job["people"]) + "\n\nWrite their emails: /customers write"
+            return _arrivals(job["people"], job.get("others", 0)) + "\n\nWrite their emails: /customers write"
         if stage == "writing":
             return "Still researching. /customers write continues."
         if stage == "reviewing":
