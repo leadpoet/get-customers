@@ -479,6 +479,9 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
         return [], 0
     # "(picklerobot.com/careers)" or "(see https://...)" is where the event was seen, not part of it, and the line must restate it word for word.
     signal = re.sub(r"\s*\((?:(?:see|via|source:?)\s+)?(?:https?://)?(?:www\.)?[\w-]+(?:\.[\w-]+)+(?:/[^\s)]*)?\)", "", signal)
+    # Seen live, run 23: "posted three SDR roles at truewind.ai/careers in November" lost its line, which allows no link.
+    signal = re.sub(r"\s+(?:at|on|via)\s+(?:https?://)?(?:www\.)?[a-z][\w-]*(?:\.[\w-]+)*\.[a-z]{2,}(?:/[^\s,;)]*[^\s,;).])?(?=[\s,;).]|$)",
+                    "", signal, flags=re.IGNORECASE)
     if _names_them(signal, person) or _is_old_news(signal):
         return [], 0
     record = str(person.get("company") or "")
