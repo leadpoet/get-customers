@@ -1403,6 +1403,8 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(lines("15 global offices", "Assembled has 15 global offices.", "https://www.assembled.com/", "Assembled"))
         # Seen live: Spendflo's product "Flo" became Spendflo: "Spendflo is live in 14 days."
         self.assertFalse(lines("Flo is live in 14 days.", "Spendflo is live in 14 days.", "https://www.spendflo.com/", "Spendflo"))
+        self.assertFalse(lines("Ploger Increased Weekly Revenue Per Mile by 14.6%", "Optimal Dynamics has Ploger Increased Weekly Revenue Per Mile by 14.6%.",
+                               "https://www.optimaldynamics.com/", "Optimal Dynamics"))
         self.assertFalse(lines("Jane Doe has joined as Chief Revenue Officer", "Acme has joined as Chief Revenue Officer.",
                                "https://acme.com/", "Acme"))
         for quote, line, company in (("Uptake has joined Bosch to scale fleet maintenance", "Uptake has joined Bosch to scale fleet maintenance.", "Uptake"),
@@ -1824,6 +1826,11 @@ class SignalOpenerTests(unittest.TestCase):
         line = f"Pickle Robot posted an SDR role in {this_month} that asks reps to find buyers by hand."
         llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": line})))
         self.assertEqual([row["line"] for row in signal_opener(llm, {"company": "Pickle Robot", "why": note})[0]], [line])
+        # Seen live: "(see https://www.platformscience.com/careers)".
+        line = "Platform Science is hiring SDRs to sell to fleet managers."
+        llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": line})))
+        note = "Platform Science is hiring SDRs (see https://www.platformscience.com/careers) to sell to fleet managers. More."
+        self.assertEqual([row["line"] for row in signal_opener(llm, {"company": "Platform Science", "why": note})[0]], [line])
 
     def test_the_opener_stops_before_leadpoets_reading_of_the_event(self):
         """30% of real openers told the prospect "indicating a need to expand their sales efforts"."""

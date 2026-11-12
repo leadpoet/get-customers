@@ -242,8 +242,10 @@ def _someone_else_speaks(quote: str, url: str, company: str, scan: Scan | None =
 
 # A quote with a named subject of its own is about that subject: "Flo is live in 14 days" is Spendflo's product, and became
 # "Spendflo is live in 14 days", seen live. Pronouns and "Our" leave the subject to the company.
-_QUOTE_SUBJECT = re.compile(r"\W*((?:[A-Z][\w&'’.-]*\s+){0,3}?[A-Z][\w&'’.-]*)\s+(?:is|are|was|were|has|have|had|lets|helps|makes|gives|"
-                            r"runs|works|goes|went|joined|launched|launches|now)\b")
+# Seen live: "Ploger Increased Weekly Revenue Per Mile by 14.6%" became "Optimal Dynamics has Ploger Increased...".
+_QUOTE_SUBJECT = re.compile(r"\W*((?:[A-Z][\w&'’.-]*\s+){0,3}?[A-Z][\w&'’.-]*)\s+(?i:is|are|was|were|has|have|had|lets|helps|makes|gives|"
+                            r"runs|works|goes|went|joined|launched|launches|now|increased|grew|cut|reduced|saved|boosted|doubled|"
+                            r"tripled|improved|achieved|switched|chose|uses|scaled|lowered|raised)\b")
 _PRONOUN_SUBJECTS = frozenset({"it", "this", "we", "they", "our", "that", "there", "here", "everyone", "everything", "you", "he", "she"})
 
 
@@ -462,8 +464,8 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     signal = _sentence(_INFERENCE.split(_LEADING_WHEN.sub("", lead_sentence(note), count=1), 1)[0].rstrip(" ,;"))
     if not signal or _HEDGE.search(_MONTH_MAY.sub("", signal)) or _DOUBT.search(note):  # A guess is not a reason to write.
         return [], 0
-    # "(picklerobot.com/careers)" is where the event was seen, not part of it, and the line must restate it word for word.
-    signal = re.sub(r"\s*\((?:https?://)?(?:www\.)?[\w-]+(?:\.[\w-]+)+(?:/[^\s)]*)?\)", "", signal)
+    # "(picklerobot.com/careers)" or "(see https://...)" is where the event was seen, not part of it, and the line must restate it word for word.
+    signal = re.sub(r"\s*\((?:(?:see|via|source:?)\s+)?(?:https?://)?(?:www\.)?[\w-]+(?:\.[\w-]+)+(?:/[^\s)]*)?\)", "", signal)
     if _names_them(signal, person) or _is_old_news(signal):
         return [], 0
     record = str(person.get("company") or "")
