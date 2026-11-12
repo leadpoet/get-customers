@@ -1713,11 +1713,13 @@ class SignalOpenerTests(unittest.TestCase):
                 ("Augmentir", "https://www.augmentir.com", "Augmentir is hiring SDRs &amp; AEs in Raleigh to sell software to plant managers.",
                  "Augmentir is hiring SDRs & AEs in Raleigh to sell software to plant managers."),
                 ("Cube Software", "https://www.cubesoftware.com", "Cube posted three SDR roles on 30 October 2026.",
-                 "Cube posted three SDR roles on 30 October 2026.")):
+                 "Cube posted three SDR roles on 30 October 2026."),
+                ("Finally", "https://www.finally.com", "Finally is hiring SDRs; its job post asks for cold calling experience.",  # Run 18.
+                 "Finally is hiring SDRs, and its job post asks for cold calling experience.")):
             why, lines = opener(company, site, note + tail, line)
             self.assertEqual(lines, [line], company)
             self.assertNotIn("&amp;", why)
-            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube")), why)
+            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally")), why)
         # A note saved before it was tidied still opens as it should read.
         llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": "Vareto is hiring two SDRs."})))
         self.assertEqual(signal_opener(llm, {"company": "Vareto", "why": "vareto is hiring two SDRs."})[0][0]["line"], "Vareto is hiring two SDRs.")
