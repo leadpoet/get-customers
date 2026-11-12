@@ -425,6 +425,10 @@ def _role_key(text: str) -> str:
     return " ".join(key.split())
 
 
+_TITLE_TAILS = frozenset({"development", "operations", "ops", "enablement", "engineering", "strategy", "marketing", "partnerships",
+                          "success", "excellence", "programs", "training", "intelligence", "planning"})
+
+
 def _names_them(text: str, person: dict) -> bool:
     """The note tells their own story in the third person. Read back to them, it sounds like a form letter.
 
@@ -436,7 +440,10 @@ def _names_them(text: str, person: dict) -> bool:
             rf"\b(?:Mr|Ms|Mrs|Mx|Dr)\.?\s+{re.escape(parts[-1].strip(',.'))}(?![\w-])", text)):
         return True
     role = _role_key(str(person.get("role") or ""))
-    return bool(role) and f" {role} " in f" {_role_key(text)} "
+    said = f" {_role_key(text)} "
+    # A longer title is someone else: "hired a Head of Sales Development" is not about the Head of Sales, seen live.
+    return bool(role) and any(said[found.end():].split()[:1] == [] or said[found.end():].split()[0] not in _TITLE_TAILS
+                              for found in re.finditer(re.escape(f" {role}"), said) if said[found.end():found.end() + 1] == " ")
 
 
 _MONTH_NUMBERS = {name: index for index, names in enumerate(

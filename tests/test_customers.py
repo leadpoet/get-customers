@@ -1806,6 +1806,9 @@ class SignalOpenerTests(unittest.TestCase):
         self.assertEqual(to("Gia Rossi", "Head of Sales", "Velo3D", named), [])
         self.assertEqual(to("Eli Shaw", "VP of Sales", "Carbon", "Carbon hired a VP of Sales in October 2026."), [])
         self.assertEqual(to("Eli Shaw", "VP of Sales", "Carbon", "Carbon hired a Vice President of Sales in October 2026."), [])
+        # Seen live: a longer title is someone else's.
+        hired = "Optimal Dynamics hired a Head of Sales Development in October 2026."
+        self.assertEqual(to("Quin Hays", "Head of Sales", "Optimal Dynamics", hired), [hired])
         self.assertEqual(to("Kim Tran", "Head of Sales", "Augury", "Augury hired a new Head of Growth in October 2026."),
                          ["Augury hired a new Head of Growth in October 2026."])
         self.assertEqual(to("Ana Rossi", "VP of Sales", "Velo3D", named.replace("Ms. Rossi", "Mr. Rossini")), [named.replace("Ms. Rossi", "Mr. Rossini")])
