@@ -97,7 +97,7 @@ _SEQUENCE_SYSTEM = (
     "The claim after it must solve that exact problem.\n"
     "3. A question about the reader or asking for a short call. Every email has exactly one, right before the "
     "sign-off. Offer nothing else unless a source names it. It can't mention the seller. Good ones: Is this worth a short "
-    "call? Who handles this at {company}?\n"
+    "call? Who handles this at {company}? Only one email may ask who handles it.\n"
     "4. A greeting like Hi {first_name}, or a sign-off like Best, then {sender}.\n"
     "Example of email one for a made-up seller:\n"
     f"Hi {{first_name}},\n{PERSONAL}\nIf late handoffs slow your drivers down, Pinecrest Freight lets you track every "
@@ -655,7 +655,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
     quotes = " ".join(fact["quote"] for fact in brief["facts"])
     proof = numbers_in(quotes)
     proof_words = _words(quotes)
-    cleaned, used, problems = [], [], []
+    cleaned, used, problems, openings = [], [], [], []
     for index, email in enumerate(emails):
         if not isinstance(email, dict):
             return None, "Each email needs a subject and a body."
@@ -684,6 +684,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
         if problem:  # Good emails aren't thrown out over a subject. This one states nothing.
             subject = SAFE_SUBJECT
         cited = asked = conditions = 0
+        opening = False  # Whether this email asks who handles it.
         claims: list[str] = []
         condition: set[str] = set()
         for line in body.splitlines():
@@ -698,6 +699,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
                 cited += has_source
                 claims += [_CITATION.sub("", sentence).strip()] if has_source else []
                 asked += sentence.endswith("?")
+                opening = opening or bool(sentence.endswith("?") and re.match(r"who\b", sentence, re.IGNORECASE))
                 if re.match(r"if\b", sentence, re.IGNORECASE) and not sentence.endswith("?"):
                     conditions += 1
                     condition |= _condition_words(sentence)
@@ -723,7 +725,12 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
         again = next((spot for spot, before in enumerate(problems, 1) if before & condition), 0)
         if again and not safe_subjects:
             return None, f"{where} names email {again}'s problem again. Name a different problem, or leave out the If sentence."
+        # Seen live, run 22: "Who handles outbound prospecting on your team?" then "Who handles lead research at Loop?".
+        # Asking who to talk to twice reads like a template. One email may ask it.
+        if opening and True in openings and not safe_subjects:
+            return None, f"{where} asks who handles it, like email {openings.index(True) + 1}. Ask a different kind of question."
         problems.append(condition)
+        openings.append(opening)
         used.append(cites)
         cleaned.append({"subject": subject, "body": _tidy(bare)})
     return cleaned, ""

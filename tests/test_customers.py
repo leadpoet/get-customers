@@ -1206,6 +1206,15 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn("[1]", emails[0]["body"])
         self.assertIn("in minutes.", emails[0]["body"])
 
+    def test_only_one_email_asks_who_handles_it(self):
+        """Seen live, run 22: email two asked "Who handles outbound prospecting?" and email three "Who handles lead research?"."""
+        def mail(second, third):
+            return {"emails": [{"subject": "payments", "body": "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?"},
+                               {"subject": "payments", "body": f"Stripe lets you accept payments online [1]. {second}"},
+                               {"subject": "payments", "body": f"Stripe lets you accept payments online [1]. {third}"}]}
+        self.assertTrue(validate_sequence(mail("Who handles billing at {company}?", "Is checkout a priority this quarter?"), self.BRIEF))
+        self.assertIsNone(validate_sequence(mail("Who handles billing at {company}?", "Who owns checkout on your team?"), self.BRIEF))
+
     def test_an_email_says_if_once(self):
         """Seen live: email one opened two paragraphs in a row with If, which reads like a form."""
         one = "Hi,\n[[PERSONAL]]\nIf your team takes card payments by phone, that is time away from buyers.\nStripe lets you accept payments online [1].\nWorth a call?"
@@ -1471,7 +1480,8 @@ class EvidenceTests(unittest.TestCase):
         body = ("Hi {first_name},\n[[PERSONAL]]\nIf long-running jobs lose progress on redeploy, Trigger.dev lets you build durable AI agents "
                 "that survive refreshes, redeploys, and crashes [1].\nIs this worth a short call?\nBest,\n{sender}")
         later = "Hi {first_name},\nTrigger.dev lets you build durable AI agents [1].\nWho handles this at {company}?\nBest,\n{sender}"
-        mail = {"emails": [{"subject": "Redeploys lose progress", "body": body}] + [{"subject": "Serverless timeouts", "body": later}] * 2}
+        mail = {"emails": [{"subject": "Redeploys lose progress", "body": body}, {"subject": "Serverless timeouts", "body": later},
+                           {"subject": "Serverless timeouts", "body": later.replace("Who handles this at {company}?", "Is this a priority at {company}?")}]}
         self.assertTrue(validate_sequence(mail, brief))
         from leadpoet_plugin.writer import check_sequence
         for address in ("Trigger.dev/docs", "app.trigger.dev", "hello@trigger.dev", "evil.example"):
