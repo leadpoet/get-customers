@@ -1742,11 +1742,13 @@ class SignalOpenerTests(unittest.TestCase):
                 ("Cube Software", "https://www.cubesoftware.com", "Cube posted three SDR roles on 30 October 2026.",
                  "Cube posted three SDR roles on 30 October 2026."),
                 ("Finally", "https://www.finally.com", "Finally is hiring SDRs; its job post asks for cold calling experience.",  # Run 18.
-                 "Finally is hiring SDRs, and its job post asks for cold calling experience.")):
+                 "Finally is hiring SDRs, and its job post asks for cold calling experience."),
+                ("Mercoa", "https://mercoa.com", "Mercoa (YC W23) raised a $12M seed and is hiring its first two SDRs.",  # Run 23.
+                 "Mercoa raised a $12M seed and is hiring its first two SDRs.")):
             why, lines = opener(company, site, note + tail, line)
             self.assertEqual(lines, [line], company)
             self.assertNotIn("&amp;", why)
-            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally")), why)
+            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa")), why)
         # A note saved before it was tidied still opens as it should read.
         llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": "Vareto is hiring two SDRs."})))
         self.assertEqual(signal_opener(llm, {"company": "Vareto", "why": "vareto is hiring two SDRs."})[0][0]["line"], "Vareto is hiring two SDRs.")
@@ -1909,7 +1911,10 @@ class SignalOpenerTests(unittest.TestCase):
         for name, first in (("J. R. Ruiz", "J. R."), ("F. Scott Fitzgerald", "Scott"), ("J.R. Ruiz", "J.R."), ("J. Ruiz", "J."),
                             ("Mary-Kate Doyle", "Mary-Kate"), ("Kai Dunn", "Kai"), ("Cher", "Cher"), ("", "there"),
                             ("Dr. Amy Fox", "Amy"), ("Prof. Ana Lima", "Ana"), ("MR Tom Berg", "Tom"), ("Dr. J. R. Ruiz", "J. R."),
-                            ("Drew Lane", "Drew"), ("Sir", "Sir")):
+                            ("Drew Lane", "Drew"), ("Sir", "Sir"),
+                            # Seen live, run 23: a list typed in one case greeted "Hi RAVI," and "Hi anna,".
+                            ("RAVI SHAH", "Ravi"), ("anna kim", "Anna"), ("li wei", "Li"), ("JEAN-LUC MOREAU", "Jean-Luc"),
+                            ("AJ SMITH", "AJ"), ("j. r. ruiz", "J. R."), ("DeShawn Ray", "DeShawn"), ("DR. AMY FOX", "Amy")):
             self.assertEqual(first_name({"name": name}), first, name)
 
     def test_the_first_sentence_survives_abbreviations(self):

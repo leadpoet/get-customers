@@ -490,6 +490,9 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     bare = _bare_name(record)
     first = bare.split()[0].strip(",.") if bare.split() else ""
     first = re.sub(r"\.[a-z]{2,4}$", "", first, flags=re.IGNORECASE)  # Seen live: "Remote acquired" for Remote.com.
+    for name in dict.fromkeys((record, bare, first)):  # Seen live, run 23: "Mercoa (YC W23) raised" lost its line. The aside is not the event.
+        if name and "(" not in record:  # "Alco Building Solutions (ABS)" is their name as recorded.
+            signal = re.sub(rf"^(\W*{re.escape(name)})\s*\([^()]*\)", r"\1", signal, count=1, flags=re.IGNORECASE)
     found = [_name_in_note(signal, name) for name in dict.fromkeys(
         (record, bare if " " in bare else record, first if _site_carries(person.get("website"), first) else record))]
     company = max((name for name in found if name), key=len, default=None if None in found else "")
@@ -791,14 +794,24 @@ def first_name(person: dict) -> str:
     """Seen live: "Hi J.," for J. R. Ruiz. Initials stay together; a name after them is the one they go by (F. Scott).
     A title before the name is not the name: "Dr. Amy Fox" is greeted as Amy."""
     parts = str(person.get("name") or "").split()
+    if _PLACEHOLDER.search(" ".join(parts)):  # "[name]" in the shared preview is a slot, not a name.
+        return " ".join(parts)
     while len(parts) > 1 and _HONORIFIC.fullmatch(parts[0]):
         parts = parts[1:]
     initials = 0
     while initials < len(parts) - 1 and _INITIAL.fullmatch(parts[initials]):
         initials += 1
     if initials and initials < len(parts) - 1:
-        return parts[initials]
-    return " ".join(parts[:initials]) or (parts[0] if parts else "there")
+        first = parts[initials]
+    else:
+        first = " ".join(parts[:initials]) or (parts[0] if parts else "there")
+    letters = re.sub(r"[^\w]|[\d_]", "", " ".join(parts))
+    cap = lambda m: m.group(0)[0].upper() + m.group(0)[1:].lower()  # noqa: E731
+    if len(letters) > 1 and letters.islower():  # Seen live, run 23: "Hi anna," and "Hi RAVI," from how a list was typed.
+        first = re.sub(r"[^\W\d_]+", cap, first)
+    elif len(letters) > 1 and letters.isupper():  # "AJ" and "J. R." may be how they write it; "RAVI" is not.
+        first = re.sub(r"[^\W\d_]{3,}", cap, first)
+    return first
 
 
 # Only legal forms. "Group", "Co." and "AI" can be part of how people say the name ("Instantly AI", "Smith & Co.").
