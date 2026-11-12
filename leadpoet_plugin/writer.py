@@ -762,9 +762,18 @@ def fits(touches: list[dict]) -> bool:
                and not re.search(r"[{}—–]|\[\[", f"{touch['subject']} {touch['body']}") for touch in touches)
 
 
+_INITIAL = re.compile(r"[^\W\d_]\.")
+
+
 def first_name(person: dict) -> str:
+    """Seen live: "Hi J.," for J. R. Ruiz. Initials stay together; a name after them is the one they go by (F. Scott)."""
     parts = str(person.get("name") or "").split()
-    return parts[0] if parts else "there"
+    initials = 0
+    while initials < len(parts) - 1 and _INITIAL.fullmatch(parts[initials]):
+        initials += 1
+    if initials and initials < len(parts) - 1:
+        return parts[initials]
+    return " ".join(parts[:initials]) or (parts[0] if parts else "there")
 
 
 # Only legal forms. "Group", "Co." and "AI" can be part of how people say the name ("Instantly AI", "Smith & Co.").

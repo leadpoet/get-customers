@@ -1871,6 +1871,12 @@ class SignalOpenerTests(unittest.TestCase):
         listed = "Ramp sells to Indicative, Showpad and Highspot."  # A name in a list is not Leadpoet's reading.
         self.assertEqual(self.line(listed, why=listed)[0][0]["line"], listed)
 
+    def test_the_greeting_uses_the_name_they_go_by(self):
+        from leadpoet_plugin.writer import first_name
+        for name, first in (("J. R. Ruiz", "J. R."), ("F. Scott Fitzgerald", "Scott"), ("J.R. Ruiz", "J.R."), ("J. Ruiz", "J."),
+                            ("Mary-Kate Doyle", "Mary-Kate"), ("Kai Dunn", "Kai"), ("Cher", "Cher"), ("", "there")):
+            self.assertEqual(first_name({"name": name}), first, name)
+
     def test_the_first_sentence_survives_abbreviations(self):
         from leadpoet_plugin.writer import lead_sentence, short_note
         self.assertEqual(lead_sentence("Acme Inc. opened a U.S. office in May. It hires now."), "Acme Inc. opened a U.S. office in May.")
