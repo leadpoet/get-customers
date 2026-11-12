@@ -555,6 +555,48 @@ class PluginCase(unittest.TestCase):
         sender = plugin.customers().api.profile()["profile"]["voice"]["sender_name"]
         self.assertNotIn("Sunnyday", sender)
 
+    def test_leaving_the_demo_returns_to_the_real_search(self):
+        plugin = self.make()
+        self.assertIn("Start for real", plugin.customers_command("demo off", platform="telegram", source=self.dm()))
+        waiting = {"id": "abcd12345678", "stage": "needs_key", "people": [], "emails": None, "created_at": 1.0,
+                   "brief": {"product_name": "Acme", "domain": "acme.example"}}
+        plugin._store("live").put("customers_job", json.dumps(waiting))
+        intro = plugin.customers_command("demo", platform="telegram", source=self.dm())
+        self.assertIn("Your real search is saved. Back to it any time: /customers demo off", intro)
+        code = intro.split("/customers go ")[1].split()[0]
+        plugin.customers_command(f"go {code}", platform="telegram", source=self.dm())
+        plugin.customers_command("write", platform="telegram", source=self.dm())
+        shown = plugin.customers_command("all", platform="telegram", source=self.dm())
+        done = plugin.customers_command("all " + shown.split("/customers all ")[1].split()[0], platform="telegram", source=self.dm())
+        self.assertTrue(done.startswith("Demo finished"), done)
+        self.assertTrue(done.endswith("Back to your real search: /customers demo off"), done)
+        with mock.patch.object(self.entry, "get_key", return_value=""):
+            back = plugin.customers_command("demo off", platform="telegram", source=self.dm())
+        self.assertTrue(back.startswith("Demo off. Back to your real search."), back)
+        self.assertIn("Finding real contacts takes a free Leadpoet account.", back)
+
+    def test_news_that_arrives_during_the_demo_says_how_to_get_back(self):
+        from leadpoet_plugin import poll
+        plugin = self.make()
+        store = plugin._store("live")
+        printed = []
+        class News:
+            def __init__(self, *_a, **_k): pass
+            def advance(self): return "3 verified contacts are in."
+        class Quiet:
+            def __init__(self, *_a, **_k): self.store = store
+            def sync(self): pass
+            def alert_text(self): return ""
+        with mock.patch.object(poll, "get_key", return_value="k"), mock.patch.object(poll, "LeadpoetApi"), \
+                mock.patch.object(poll, "Store", return_value=store), mock.patch.object(poll, "data_dir", return_value=Path(self.folder.name)), \
+                mock.patch.object(poll, "Customers", News), mock.patch.object(poll, "Desk", Quiet), \
+                mock.patch("builtins.print", lambda *a, **k: printed.append(a[0])):
+            poll.main()
+            store.put("demo", "1")
+            poll.main()
+        self.assertEqual(printed[0], "3 verified contacts are in.")
+        self.assertIn("Back to your real search: /customers demo off", printed[1])
+
     def test_the_desk_demo_keeps_a_customers_demo(self):
         plugin = self.make()
         plugin.customers_command("demo", platform="telegram", source=self.dm())

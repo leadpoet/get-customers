@@ -1489,6 +1489,149 @@ class ManySearchesCase(Case):
         self.assertIn("the most at once", self.customers.handle(self.OTHER, ""))
 
 
+class WaitingCase(Case):
+    """The days between asking and the contacts arriving, which is where most people first stop."""
+
+    OTHER = ManySearchesCase.OTHER
+
+    def setUp(self):
+        super().setUp()
+        self.customers.fetcher = lambda url: ManySearchesCase.fetch(self, url)
+        self.customers.llm = ManySearchesCase.Llm()
+        self.clock = [1_800_000_000.0]
+        self.customers.now = lambda: self.clock[0]
+
+    def go(self):
+        self.text = self.customers.handle("go", self.customers.handle("", "").split("/customers go ")[1].split()[0])
+        return self.customers.job()
+
+    def second(self):
+        """Another site, wanting different companies, so its request text is its own."""
+        self.customers.handle(self.OTHER, "")
+        job = self.customers.job()
+        job["brief"]["company_fit"] = "Bakeries with two or more shops"
+        self.customers.save(job)
+        return self.go()
+
+    def typed(self, job, name, day):
+        return {"id": name, "icp_id": f"icp-{name}", "created_at": f"2099-01-0{day}T00:00:00Z",
+                "request_description": description(job["brief"])}
+
+    def test_two_unsent_searches_each_take_their_own_request(self):
+        self.api.credits_left = 0
+        first, second = self.go(), self.second()
+        site = first["brief"]["domain"]
+        self.api.app_requests = [self.typed(first, "app-first", 1)]
+        ping = self.customers.advance()
+        self.assertTrue(ping.startswith(f"{site}: I see your search in Leadpoet."), ping)
+        self.assertIn("Leadpoet is on it. Each company", ping)  # Leadpoet's clock runs ahead here, and no wait is counted from it.
+        look = self.customers.handle("", "")  # The open one is still waiting to be pasted, and says only that.
+        self.assertNotIn("/customers use", look)
+        self.assertIn("paste:", look)
+        self.api.app_requests.append(self.typed(second, "app-second", 2))
+        self.assertTrue(self.customers.advance().startswith("other.example: I see your search in Leadpoet."))
+        self.assertEqual(self.customers.job()["query_id"], "app-second")
+        self.customers.handle("open", site)
+        self.assertEqual(self.customers.job()["query_id"], "app-first")
+
+    def test_the_older_request_is_found_behind_a_newer_one(self):
+        self.api.credits_left = 0
+        first, second = self.go(), self.second()
+        self.api.app_requests = [self.typed(first, "app-first", 1), self.typed(second, "app-second", 2)]
+        self.customers.advance()
+        self.assertEqual(self.customers.job()["query_id"], "app-second")
+        self.customers.handle("open", first["brief"]["domain"])
+        self.assertEqual((self.customers.job()["stage"], self.customers.job()["query_id"]), ("finding", "app-first"))
+
+    def test_a_request_another_search_follows_is_never_offered(self):
+        self.api.credits_left = 0
+        first = self.go()
+        self.api.app_requests = [{**self.typed(first, "app-odd", 1), "request_description": "Find dentists"}]
+        code = self.customers.handle("", "").split("/customers use ")[1].split()[0]
+        other = self.second()
+        self.customers.save({**other, "stage": "finding", "query_id": "app-odd"})
+        self.customers.handle("open", first["brief"]["domain"])
+        text = self.customers.handle("use", code)
+        self.assertIn("belongs to another of your searches", text)
+        self.assertEqual(self.customers.job()["stage"], "needs_credits")
+
+    def test_the_list_says_what_an_unsent_search_waits_on(self):
+        self.api.credits_left = 0
+        self.go()
+        self.second()
+        listing = self.customers.handle("list", "")
+        self.assertEqual(listing.count("waiting for you to submit it in Leadpoet"), 2)
+        self.assertNotIn("waiting for credits", listing)
+
+    def test_the_wait_says_how_long_it_has_been(self):
+        self.go()
+        self.assertIn("Leadpoet is on it. Each company", self.text)
+        self.clock[0] += 86400 + 60
+        self.assertIn("Leadpoet is on it, a day in.", self.customers.handle("", ""))
+        self.assertEqual(self.customers.advance(), "")
+        self.clock[0] += 86400
+        self.assertIn("Leadpoet is on it, 2 days in.", self.customers.handle("", ""))
+
+    def test_a_long_wait_is_said_once(self):
+        self.go()
+        self.clock[0] += 3 * 86400 + 60
+        ping = self.customers.advance()
+        self.assertIn("still on it, 3 days in. That's longer than usual.", ping)
+        self.assertIn("Nothing more is charged", ping)
+        self.assertNotIn("While you wait", ping)
+        self.assertEqual(self.customers.advance(), "")
+        self.clock[0] += 2 * 86400
+        self.assertEqual(self.customers.advance(), "")
+        look = self.customers.handle("", "")
+        self.assertIn("5 days in", look)
+        self.assertNotIn("usually takes 1 to 2 days", look)
+        self.api.state = "completed"
+        self.assertIn("verified contacts are in", self.customers.advance())
+
+    def test_the_wait_points_at_what_to_do_meanwhile(self):
+        self.api.senders = []
+        self.go()
+        self.assertIn("While you wait:", self.text)
+        self.assertIn("• Inbox: connect the email account your outreach will go from. https://leadpoet.com/dashboard/outreach", self.text)
+        self.assertIn("• Your voice: paste a few lines you wrote. /customers voice <text>", self.text)
+        self.assertIn(f"/customers demo {self.customers.job()['brief']['domain']}", self.text)
+        self.api.senders = ["acct-1"]
+        self.customers.handle("voice", "I write short and plain. One idea in each email, then one clear ask.")
+        look = self.customers.handle("", "")
+        self.assertNotIn("Inbox:", look)
+        self.assertNotIn("Your voice:", look)
+        self.assertIn("Preview:", look)
+
+    def test_a_tip_that_cannot_be_read_never_breaks_the_wait(self):
+        self.go()
+        def down():
+            raise ApiError("Leadpoet returned HTTP 502.", status=502, ambiguous=True)
+        self.api.email_accounts = down
+        look = self.customers.handle("", "")
+        self.assertIn("Leadpoet is on it.", look)
+        self.assertNotIn("Inbox:", look)
+
+    def test_credits_bought_in_the_app_are_announced(self):
+        self.api.credits_left = 0
+        self.go()
+        self.assertEqual(self.customers.advance(), "")
+        self.api.credits_left = 500
+        ping = self.customers.advance()
+        self.assertIn("Your credits are in.", ping)
+        self.assertIn("/customers go ", ping)
+        self.assertEqual(self.customers.advance(), "")  # Said once.
+        self.assertEqual(self.api.requests, [])  # Announcing is not spending.
+
+    def test_news_names_its_search_when_several_are_going(self):
+        first = self.go()
+        self.api.credits_left = 100
+        self.second()
+        self.api.state = "completed"
+        ping = self.customers.advance()
+        self.assertIn("other.example: 3 verified contacts are in.", ping)
+        self.assertIn(f"{first['brief']['domain']}: 3 verified contacts are in.", ping)
+
+
 class ReasoningBudgetTests(unittest.TestCase):
     def test_a_reasoning_model_still_finishes_the_brief(self):
         """Haiku 5.5 spent 1,384 of 1,400 tokens thinking, and the JSON stopped at '{"product_name":'."""

@@ -150,9 +150,17 @@ class Plugin:
         key = get_key()
         return Customers(LeadpoetApi(key) if key else None, self._store("live"), llm, say=self._say())
 
+    def _real_search(self) -> dict | None:
+        """The search on the real account, which keeps running while the demo is open."""
+        job = Customers(None, self._store("live")).job()
+        return job if job and job["stage"] not in ("scanned", "done") else None
+
     def _customers_demo(self, argument: str) -> str:
         if argument.lower() == "off":
-            return self._demo("off")
+            off = self._demo("off")
+            if not self._real_search():
+                return off
+            return "Demo off. Back to your real search.\n\n" + self.customers().handle("", "")
         self._store("live").put("demo", "1")
         self._demo_api, self._demo_customers = DemoApi(), DemoCustomersApi()
         self._store("demo").reset()
@@ -161,13 +169,17 @@ class Plugin:
         for item in desk.store.open_items():
             desk.store.update(item["task_id"], state="new", skipped=0, draft=None)
         llm = getattr(self.ctx, "llm", None)
+        real = self._real_search()
+        state = "is saved" if real and real["stage"] in ("needs_key", "needs_credits") else "keeps running"
+        kept = f"\nYour real search {state}. Back to it any time: /customers demo off" if real else ""
         if argument and llm is None:
             argument = ""  # Reading a real site needs a model, so the made-up seller stands in.
         if argument:
-            intro = "Demo mode: this is your real website, read by your model. The prospects are made up, so nothing can reach anyone.\n\n"
+            intro = ("Demo mode: this is your real website, read by your model. "
+                     f"The prospects are made up, so nothing can reach anyone.{kept}\n\n")
             self._store("demo").put("own_site", "1")
             return intro + Customers(self._demo_customers, self._store("demo"), llm, say=self._say()).start(argument)
-        intro = "Demo mode: every company and person here is made up, so nothing can reach anyone.\n\n"
+        intro = f"Demo mode: every company and person here is made up, so nothing can reach anyone.{kept}\n\n"
         return intro + self.customers().start(SELLER)
 
     def customers_command(self, raw_args: str, *, platform: str = "", source: Any = None, **_: Any) -> str:
@@ -183,7 +195,10 @@ class Plugin:
                 return self._customers_demo(argument)
             if self.in_demo() and action and action not in _CUSTOMER_ACTIONS:
                 return "You're in the demo. Leave it with /customers demo off, then send your site."
-            return self.customers().handle(action if action in _CUSTOMER_ACTIONS or not action else parts[0], argument)
+            text = self.customers().handle(action if action in _CUSTOMER_ACTIONS or not action else parts[0], argument)
+            if text.startswith("Demo finished") and self._real_search():
+                text += "\nBack to your real search: /customers demo off"
+            return text
         except ApiError as error:
             return trouble(error)
         except Exception:

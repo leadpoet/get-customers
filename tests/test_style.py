@@ -36,6 +36,18 @@ class MarkCase(unittest.TestCase):
         self.assertEqual(mark("/customers voice <a few lines you wrote>: match your writing"),
                          "`/customers voice <a few lines you wrote>`: match your writing")
 
+    def test_a_tip_keeps_its_label_and_its_command(self):
+        self.assertEqual(mark("• Your voice: paste a few lines you wrote. /customers voice <text>"),
+                         "• **Your voice:** paste a few lines you wrote. `/customers voice <text>`")
+        self.assertEqual(mark("• Preview: write and approve with made-up contacts. /customers demo acme.com"),
+                         "• **Preview:** write and approve with made-up contacts. `/customers demo acme.com`")
+        self.assertEqual(mark("• Inbox: connect the email account your outreach will go from. https://leadpoet.com/dashboard/outreach"),
+                         "• **Inbox:** connect the email account your outreach will go from. https://leadpoet.com/dashboard/outreach")
+
+    def test_news_about_a_named_search_still_stands_out(self):
+        self.assertEqual(mark("acme.com: 3 verified contacts are in. Why each company:"),
+                         "**acme.com: 3 verified contacts are in.** Why each company:")
+
     def test_a_web_address_is_not_a_command(self):
         for text in ("Add credits here: https://leadpoet.com/dashboard/lead-engine", "See https://example.com/desk for more",
                      "https://example.com/customers go", "https://acme.com/#/customers", "https://acme.com/login?next=/desk"):

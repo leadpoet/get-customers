@@ -37,7 +37,8 @@ _EMAIL_END = re.compile(r"^(?:---|Leadpoet adds your booking link, if you've set
                         r"Approve (?:these exact emails|all \d+ exactly as shown): /customers .*)$")
 _REPLY_END = re.compile(r"^(?:/desk (?:send|edit|redraft|skip)\b.*|Fill in the \[ADD: \.\.\.\] part first\..*)$")
 _BULLET = re.compile(r"^• ([^:\n]{2,40}):(?= )")
-_LEAD = re.compile(r"^(\d+ verified contacts? (?:is|are) in\.|Approved [^\n]{1,80}\.$|Sent to [^\n]{1,120}\.$|"
+# With several searches going, news starts with the name of the one it's about.
+_LEAD = re.compile(r"^((?:[^\n:]{1,80}: )?\d+ verified contacts? (?:is|are) in\.|Approved [^\n]{1,80}\.$|Sent to [^\n]{1,120}\.$|"
                    r"Live\.|Your key is in\.|Demo finished, and nothing was sent\.|[^\n]{1,120} replied(?= \())")
 _DESK_HEAD = re.compile(r"^(\d+ of \d+ · )([^·\n]+)( · .*)$")
 _PERSON = re.compile(r"^[^\n:]{2,80}, [^\n:]{2,80} at [^\n:]{2,80}$")
@@ -90,7 +91,7 @@ def mark(text: str, marks: tuple[str, str, str, str] = MARKDOWN) -> str:
             rest = line[label.end():]  # After a label come someone's words. After news comes the next step.
             line = bold(label.group(0)) + (rest if _LABEL.match(line) else _SHELL.sub(code, _COMMAND.sub(code, rest)))
         elif bullet:
-            line = "• " + bold(bullet.group(1) + ":") + line[bullet.end():]
+            line = "• " + bold(bullet.group(1) + ":") + _SHELL.sub(code, _COMMAND.sub(code, line[bullet.end():]))
         else:
             line = _SHELL.sub(code, _COMMAND.sub(code, line))
         out.append(line)

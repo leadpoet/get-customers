@@ -48,6 +48,7 @@ _LOCK = "customers"
 _JOB = "customers_job"
 _PARKED = "customers_parked"  # Other searches still running, so each one keeps moving.
 MAX_SEARCHES = 5
+LATE_SECONDS = 3 * 86400  # Past the "1 to 2 days" someone was told, so silence would read as broken.
 _SETTLED = ("scanned", "done", "failed", "live")
 _SLOW_DOWN = "Leadpoet asked me to slow down. I'll carry on at the next check."
 _NO_ANSWER = "Leadpoet didn't answer in time. Your approval is kept, and I'll carry on at the next check."
@@ -512,7 +513,8 @@ class Customers:
         job.pop("find_body", None)
         job.pop("refused", None)
         job.update(stage="finding", query_id=data.get("query_id"), query_ids=data.get("query_ids") or [], icp_id=data.get("icp_id"),
-                   companies=body["max_leads"], spent=body["credit_budget"], credits_left=data.get("credits_remaining"))
+                   companies=body["max_leads"], spent=body["credit_budget"], credits_left=data.get("credits_remaining"),
+                   asked_at=self.now())
         self.save(job)
         if demo:  # The demo has no wait to sit through, so it goes straight to what the wait ends in.
             self._refresh_find(job)
@@ -544,27 +546,40 @@ class Customers:
         job.update(balance=balance, plan=str(credits.get("plan") or job.get("plan") or "").lower())
         self.save(job)
 
+    def _others(self) -> list[dict]:
+        """Every search but this one, open or in the background."""
+        jobs = [self._other(key).job() for key in (_JOB, *self._parked()) if key != self.key]
+        return [job for job in jobs if job]
+
     def _adopt(self, job: dict) -> bool:
         """After the first request is made in the app, carry on with it, but only if it's this search."""
         since = job.get("handed_off_at", job["created_at"])
         wanted = _squash(briefs.description(job["brief"])).lower()
+        others = self._others()
+        taken = {other.get("query_id") for other in others}  # Two searches must never follow one request.
+        theirs = [_squash(briefs.description(other["brief"])).lower() for other in others if other["stage"] == "needs_credits"]
+        unknown = None
         for request in sorted(self.api.list_requests(), key=lambda row: str(row.get("created_at") or ""), reverse=True):
             created = _timestamp(request.get("created_at"))
-            if created is None or created < since or not request.get("id"):
+            if created is None or created < since or not request.get("id") or request["id"] in taken:
                 continue
             typed = _squash(f"{request.get('request_description') or ''} {request.get('natural_language_query') or ''}").lower()
             if wanted in typed:
                 self._adopt_request(job, request)
                 return True
-            # It may be this search with the text changed. Only the user can say.
-            job["other_request"] = {"id": request["id"], "icp_id": request.get("icp_id")}
-            self.save(job)
-            return False
+            if unknown is None and not any(text in typed for text in theirs):
+                unknown = request  # It may be this search with the text changed. Only the user can say.
+        if unknown:
+            job["other_request"] = {"id": unknown["id"], "icp_id": unknown.get("icp_id")}
+        else:
+            job.pop("other_request", None)
+        self.save(job)
         return False
 
     def _adopt_request(self, job: dict, request: dict) -> None:
         job.pop("other_request", None)
-        job.update(stage="finding", query_id=request["id"], icp_id=request.get("icp_id"), from_app=True)
+        job.update(stage="finding", query_id=request["id"], icp_id=request.get("icp_id"), from_app=True,
+                   asked_at=min(_timestamp(request.get("created_at")) or self.now(), self.now()))
         self.save(job)
 
     def _use(self, job: dict | None, code: str) -> str:
@@ -573,6 +588,10 @@ class Customers:
             return self._next(job)
         if code != code_for(job["id"], other["id"]):
             return "That code doesn't match. Use the code shown here:\n\n" + self._next(job)
+        if other["id"] in {search.get("query_id") for search in self._others()}:
+            job.pop("other_request", None)
+            self.save(job)
+            return "That one belongs to another of your searches.\n\n" + self._next(job)
         self._adopt_request(job, other)
         return self._next(job)
 
@@ -1023,16 +1042,27 @@ class Customers:
                 return "\n\n".join(self._approve_matching(None))
             except ApiError:
                 return ""
-        before, told, empty = job["stage"], job.get("blocked"), job.get("delivered_empty")
+        before, told, empty, short = job["stage"], job.get("blocked"), job.get("delivered_empty"), not self._covered(job)
         notes = self._refresh(job)
         picked_up = before == "needs_credits" and job["stage"] == "finding"  # They pasted it in the app and are wondering if it took.
+        topped_up = (job["stage"] == "needs_credits" and short and self._covered(job)
+                     and not job.get("refused") and not job.get("other_request"))
+        late = (job["stage"] == "finding" and not job.get("delivered_empty") and not job.get("late_told")
+                and self.now() - job.get("asked_at", self.now()) >= LATE_SECONDS)
         if (job["stage"] != before and job["stage"] in ("ready", "failed", "live")) or (job.get("delivered_empty") and not empty):
             notes.insert(0, self._parked_news(job) if parked else self._next(job))
         elif picked_up:
-            notes.insert(0, "I see your search in Leadpoet.\n\n" + self._stage_text(job))
+            notes.insert(0, "I see your search in Leadpoet.\n\n" + self._waiting(job, tips=not parked))
+        elif topped_up:  # They paid in the app. The next step is back here.
+            notes.insert(0, self._stage_text(job) if not parked
+                         else f"Your credits are in. Open it to confirm: /customers open {_site(job)}")
+        elif late:  # Said once. After that the wait shows whenever they look.
+            job["late_told"] = True
+            self.save(job)
+            notes.insert(0, self._waiting(job, tips=False))
         elif job.get("blocked") and job["blocked"] != told and job["blocked"] not in (_SLOW_DOWN, _NO_ANSWER):
             notes.insert(0, job["blocked"])
-        if parked and notes:
+        if notes and (parked or self._parked()):  # With several going, news has to say which one it's about.
             return f"{_site(job)}: " + "\n\n".join(notes)
         return "\n\n".join(notes)
 
@@ -1094,8 +1124,7 @@ class Customers:
                 return ("I see a new search in Leadpoet, but its text isn't the one I gave you, so I didn't assume it's this one.\n"
                         f"If it is: /customers use {code_for(job['id'], job['other_request']['id'])}")
             balance, cost = job.get("balance") or 0, job.get("quoted_credits") or 0
-            paid = job.get("plan") not in (None, "", "free")  # A paid plan tops up. Only a free one has credits to claim.
-            covered = bool(cost) and bool(affordable_companies(balance, cost // COMPANIES))
+            paid, covered = self._paid(job), self._covered(job)
             if covered and not job.get("refused"):
                 return (f"Your credits are in.\nCost: {cost:,} credits. You have {balance:,}.\n\n"
                         f"To confirm, reply:\n/customers go {self._brief_code(job)}")
@@ -1118,12 +1147,7 @@ class Customers:
         if stage == "finding" and job.get("delivered_empty"):
             return "Leadpoet finished, but I can't see a contact with an email yet. Check Pipeline in Leadpoet. /customers check looks again."
         if stage == "finding":
-            # A request typed into the app carries the profile, not the signals.
-            signalled = briefs.signals_text(job["brief"]) and not job.get("from_app")
-            checked = "against your profile and for a recent buying signal" if signalled else "against your profile"
-            return (f"Leadpoet is on it. Each company is checked {checked}, "
-                    "and every contact is verified, so this usually takes 1 to 2 days.\n\n"
-                    "I'll message you here the moment they're in. Waiting costs no tokens.")
+            return self._waiting(job)
         if stage == "ready":
             return _arrivals(job["people"]) + "\n\nWrite their emails: /customers write"
         if stage == "writing":
@@ -1149,6 +1173,55 @@ class Customers:
         if stage == "failed":
             return f"{job.get('failure')} No more credits will be used. /customers reset starts over."
         return "All done. /customers reset starts a new one."
+
+    @staticmethod
+    def _paid(job: dict) -> bool:
+        return job.get("plan") not in (None, "", "free")  # A paid plan tops up. Only a free one has credits to claim.
+
+    @staticmethod
+    def _covered(job: dict) -> bool:
+        balance, cost = job.get("balance") or 0, job.get("quoted_credits") or 0
+        return bool(cost) and bool(affordable_companies(balance, cost // COMPANIES))
+
+    def _to_paste(self, job: dict) -> bool:
+        """Is this search waiting on the free request being typed into Leadpoet's app, rather than on a top-up?"""
+        return (not job.get("other_request") and not self._covered(job)
+                and not (job.get("balance") or self._paid(job)))
+
+    def _waiting(self, job: dict, tips: bool = True) -> str:
+        """The days between asking and the contacts arriving. Most people stop here first, so it says what's happening,
+        how long it has been, and what's worth doing meanwhile."""
+        # A request typed into the app carries the profile, not the signals.
+        signalled = briefs.signals_text(job["brief"]) and not job.get("from_app")
+        checked = "against your profile and for a recent buying signal" if signalled else "against your profile"
+        days = max(0, int((self.now() - job.get("asked_at", self.now())) // 86400))  # Leadpoet's clock may run ahead of this one.
+        if days * 86400 >= LATE_SECONDS:
+            text = (f"Leadpoet is still on it, {days} days in. That's longer than usual. "
+                    f"Each company is checked {checked}, and every contact is verified. Nothing more is charged while it runs.\n"
+                    f"See it in Leadpoet: {LEAD_ENGINE_URL}\n\n"
+                    "I'll message you here the moment they're in.")
+        else:
+            so_far = f", {'a day' if days == 1 else f'{days} days'} in" if days else ""
+            text = (f"Leadpoet is on it{so_far}. Each company is checked {checked}, "
+                    "and every contact is verified, so this usually takes 1 to 2 days.\n\n"
+                    "I'll message you here the moment they're in. Waiting costs no tokens.")
+        meanwhile = self._meanwhile(job) if tips else ""
+        return text + (f"\n\n{meanwhile}" if meanwhile else "")
+
+    def _meanwhile(self, job: dict) -> str:
+        """What makes the first email go out the day the contacts land, rather than a day later."""
+        rows = []
+        try:
+            if not self._senders():
+                rows.append(f"• Inbox: connect the email account your outreach will go from. {OUTREACH_URL}")
+        except (ApiError, AttributeError, KeyError, TypeError):
+            pass  # Launching says so if it's still missing. A tip mustn't break the wait.
+        if not job.get("voice_sample"):
+            rows.append("• Your voice: paste a few lines you wrote. /customers voice <text>")
+        domain = str(job["brief"].get("domain") or "")
+        site = f" {domain}" if "." in domain else ""
+        rows.append(f"• Preview: write and approve with made-up contacts. /customers demo{site}")
+        return "While you wait:\n" + "\n".join(rows)
 
     def _first_send(self, job: dict) -> str:
         """When the next of these emails leaves, so "Live" never reads as "nothing is happening"."""
@@ -1235,9 +1308,15 @@ class Customers:
         labels = {"scanned": "ready to confirm", "needs_key": "needs a Leadpoet key", "needs_credits": "waiting for credits", "finding": "finding contacts", "ready": "contacts are in",
                   "writing": "writing", "reviewing": "waiting for you", "launching": "launching", "live": "live",
                   "failed": "stopped", "done": "done"}
-        lines = [f"{_site(other)}: {labels.get(other['stage'], other['stage'])}" for other in others]
+
+        def label(search: dict) -> str:
+            if search["stage"] == "needs_credits" and self._to_paste(search):
+                return "waiting for you to submit it in Leadpoet"
+            return labels.get(search["stage"], search["stage"])
+
+        lines = [f"{_site(other)}: {label(other)}" for other in others]
         if job and not job["people"] and not past:  # The whole card again would bury the list they asked for.
-            here = f"{_site(job)}: {labels.get(job['stage'], job['stage'])}. This is the one that's open: /customers"
+            here = f"{_site(job)}: {label(job)}. This is the one that's open: /customers"
         return (f"{here}\n\nOther searches:\n" + "\n".join(lines) + "\nOpen one: /customers open <site>")
 
     def _people(self, job: dict | None) -> str:
