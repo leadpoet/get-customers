@@ -1292,6 +1292,9 @@ class EvidenceTests(unittest.TestCase):
                                "https://persana.ai/", "Persana AI"))
         self.assertTrue(lines("Trusted & Loved by 10,000+ teams", "Persana AI is trusted & loved by 10,000+ teams.",
                               "https://persana.ai/", "Persana AI"))
+        # Seen live: a heading's capitals went out mid-sentence as "Trumpet is Trusted by 15,000+ revenue teams".
+        self.assertEqual(lines("Trusted by 15,000+ revenue teams", "Trumpet is Trusted by 15,000+ revenue teams.",
+                               "https://www.sendtrumpet.com/", "Trumpet")[0]["line"], "Trumpet is trusted by 15,000+ revenue teams.")
         # Seen live on bardeen.ai: their own positioning, said back to them.
         for quote in ("Bardeen is ideal for GTM teams across various roles including Sales (SDRs, AEs)",
                       "Bardeen is the leading AI agent for GTM teams", "Bardeen is built for GTM teams"):
@@ -1626,8 +1629,14 @@ class SignalOpenerTests(unittest.TestCase):
                                         ("Default - Inbound Automation", "https://www.default.com", "Default posted two SDR roles."),
                                         ("Outplay | Sales Engagement Platform", "outplayhq.com", "Outplay is hiring four SDRs."),
                                         ("Juro Online Ltd", "juro.com", "Juro hired a CRO on 3 October 2026."),
-                                        ("Dealfront Systems, Inc.", "https://www.dealfront.com/", "Dealfront is hiring six SDRs in Boston.")):
+                                        ("Dealfront Systems, Inc.", "https://www.dealfront.com/", "Dealfront is hiring six SDRs in Boston."),
+                                        ("Trumpet | Digital Sales Rooms", "https://www.sendtrumpet.com", "Trumpet posted two SDR roles.")):
             self.assertEqual(on_site(company, site, sentence), [sentence], company)
+        # Seen live: "In October 2026, Kixie hired four SDRs" put the date first and lost its line. A place first still refuses.
+        llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": "Kixie hired four SDRs in Denver."})))
+        self.assertEqual([row["line"] for row in signal_opener(llm, {"company": "Kixie", "why": "In October 2026, Kixie hired four SDRs in Denver. More."})[0]],
+                         ["Kixie hired four SDRs in Denver."])
+        self.assertEqual(opener("Acme", "In Denver, Acme opened an office.", "Acme opened an office."), [])
         for company, site, sentence in (("Home | Acme Roofing", "acmeroofing.com", "Home sales in Denver rose 8% in May."),
                                         ("Home | Acme Roofing", "myhomeroofing.com", "Home sales in Denver rose 8% in May."),
                                         ("Alpine, an ITW Company", "alpine.com", "Alpine Electronics hired a CRO."),
@@ -1664,6 +1673,9 @@ class SignalOpenerTests(unittest.TestCase):
         from leadpoet_plugin.writer import lead_sentence, short_note
         self.assertEqual(lead_sentence("Acme Inc. opened a U.S. office in May. It hires now."), "Acme Inc. opened a U.S. office in May.")
         self.assertEqual(lead_sentence("Raised $9.1M led by J. Smith. More here."), "Raised $9.1M led by J. Smith.")
+        # Seen live: "Mutiny named Priya Shah Head of Sales on Oct." went out as the whole line.
+        self.assertEqual(lead_sentence("Acme named a CRO on Oct. 6, 2026, and is hiring. More."), "Acme named a CRO on Oct. 6, 2026, and is hiring.")
+        self.assertEqual(lead_sentence("Acme hired a CRO in Oct. The team grew."), "Acme hired a CRO in Oct.")
         self.assertTrue(short_note("word " * 80).endswith("…"))
         self.assertLessEqual(len(short_note("word " * 80)), 221)
 

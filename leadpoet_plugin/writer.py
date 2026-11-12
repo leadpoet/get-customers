@@ -155,6 +155,9 @@ def _opens_on_company(line: str, person: dict) -> bool:
 # number with a word or two, or a number with only capitalized words after it: "10,000+ Sales Professionals".
 _STAT_TILE = re.compile(r"\W*\S+(?:\s+\S+)?\W*$|\W*(?i:over\s+|more\s+than\s+)?[$€£]?\d[\d.,]*\S*(?:\s+[A-Z&][\w&'’-]*)+\W*$")
 # A tile like "Trusted & Loved by 10,000+ teams" takes is, never has: "Persana AI has Trusted & Loved by" was seen live.
+# A heading's capitals don't belong mid-sentence: "Trumpet is Trusted by 15,000+ revenue teams" was seen live.
+_BADGE_CASE = re.compile(r"\b(?:is|are)\s+(?:Trusted|Loved|Used|Backed|Chosen|Rated|Funded|Recognized|Recognised|Featured|Powered)"
+                         r"(?:\s*(?:&|and)\s*[A-Z]\w+)?\b")
 _HAS_PASSIVE = re.compile(r"\bhas\s+(?:trusted|loved|backed|chosen|rated|funded|recognized|recognised|featured|used|powered)\b"
                           r"(?:\s*(?:&|and)\s*\w+)?\s+(?:by|in|on)\b", re.IGNORECASE)
 # Their pitch about themselves is not news to them. Seen live: "Bardeen is ideal for GTM teams across various roles".
@@ -229,6 +232,7 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
             dropped += 1
             continue
         line, quote, url = _sentence(clean(entry.get("line"), 400)), clean(entry.get("quote"), 500), clean(entry.get("url"), 2000)
+        line = _BADGE_CASE.sub(lambda badge: badge.group().lower(), line)
         # A stat tile's meaning is in the label beside it: "5000+ Salespeople" counts their users, not their staff.
         good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _HAS_PASSIVE.search(line) and not _SELF_PRAISE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
                 and not _NO_SUBJECT_OPENING.match(line)
@@ -264,6 +268,12 @@ _LEAD_INS = frozenset({"is", "was", "has", "had", "have", "are", "were"})
 _DOUBT = re.compile(r"\b(?:thin|unconfirmed|unverified|unclear|(?:does|do|did) not confirm|not confirmed|no longer)\b", re.IGNORECASE)
 _ABBREVIATIONS = frozenset({"inc", "co", "corp", "ltd", "llc", "st", "mr", "ms", "mrs", "dr", "jr", "sr", "vs", "no", "approx",
                             "e.g", "i.e", "u.s", "u.k", "a.m", "p.m"})
+_MONTHS = frozenset({"jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec"})
+# "In October 2026, Kixie hired" puts the date first. The event after it is the signal; the note keeps the date.
+_LEADING_WHEN = re.compile(r"(?:In|On|During|Last|This|Earlier this|Early|Late|Mid)\b[^,]{1,30}?"
+                           r"(?:\d{4}|\d{1,2}|week|month|quarter|year|[Jj]an\w*|[Ff]eb\w*|[Mm]ar\w*|[Aa]pr\w*|[Mm]ay|[Jj]une?|"
+                           r"[Jj]uly?|[Aa]ug\w*|[Ss]ep\w*|[Oo]ct\w*|[Nn]ov\w*|[Dd]ec\w*|Q[1-4]|spring|summer|fall|autumn|winter)\.?"
+                           r"(?:,?\s+\d{4})?,\s+(?=[A-Z])")
 
 
 def lead_sentence(note: str) -> str:
@@ -273,6 +283,8 @@ def lead_sentence(note: str) -> str:
         word = re.findall(r"[\w.]+$", text[:stop.start()])
         token = word[0].lower() if word else ""
         if token in _ABBREVIATIONS or len(token) == 1:  # "Acme Inc. hired" and "J. Smith" go on.
+            continue
+        if token in _MONTHS and re.match(r"\s+\d", text[stop.end():]):  # Seen live: "Head of Sales on Oct." was a whole line.
             continue
         return text[:stop.end()]
     return text
@@ -338,7 +350,8 @@ def _site_carries(site: Any, word: str) -> bool:
         host = urllib.parse.urlsplit(str(site or "") if "://" in str(site or "") else f"https://{site}").hostname or ""
     except ValueError:  # A record's website can be anything, like http://[x.
         return False
-    names = {f"{before}{word}{after}" for before in ("", "go", "get", "try", "use") for after in ("", "hq", "app")}
+    names = {f"{before}{word}{after}" for before in ("", "go", "get", "try", "use", "join", "send", "meet", "hey", "hello")
+             for after in ("", "hq", "app", "labs")}
     return len(word) >= 3 and any(label in names for label in host.lower().split(".")[:-1])
 
 
@@ -348,7 +361,7 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     Only the note's first sentence, the event itself, can open: the rest explains the fit, and a closing "it does not
     show they are evaluating us" is not doubt about the event. Doubt about the evidence anywhere still means no line."""
     note = re.sub(r"\s+", " ", str(person.get("why") or "")).strip()
-    signal = _sentence(_INFERENCE.split(lead_sentence(note), 1)[0].rstrip(" ,;"))
+    signal = _sentence(_INFERENCE.split(_LEADING_WHEN.sub("", lead_sentence(note), count=1), 1)[0].rstrip(" ,;"))
     if not signal or _HEDGE.search(_MONTH_MAY.sub("", signal)) or _DOUBT.search(note):  # A guess is not a reason to write.
         return [], 0
     record = str(person.get("company") or "")
