@@ -1389,6 +1389,9 @@ class EvidenceTests(unittest.TestCase):
         self.assertFalse(lines("80% reduction in approval times", "Spendflo has an 80% reduction in approval times.",
                                "https://www.spendflo.com/", "Spendflo"))
         self.assertFalse(lines("3x faster month-end close", "Rillet has 3x faster month-end close.", "https://www.rillet.com/", "Rillet"))
+        self.assertFalse(lines("2,000+ hours reclaimed per year", "Spendflo has 2,000+ hours reclaimed per year.",
+                               "https://www.spendflo.com/", "Spendflo"))
+        self.assertFalse(lines("$2M in pipeline generated", "Acme has $2M in pipeline generated.", "https://acme.com/", "Acme"))
         self.assertTrue(lines("15 global offices", "Assembled has 15 global offices.", "https://www.assembled.com/", "Assembled"))
         # Seen live: Spendflo's product "Flo" became Spendflo: "Spendflo is live in 14 days."
         self.assertFalse(lines("Flo is live in 14 days.", "Spendflo is live in 14 days.", "https://www.spendflo.com/", "Spendflo"))

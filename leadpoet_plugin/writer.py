@@ -159,7 +159,10 @@ _STAT_TILE = re.compile(r"\W*\S+(?:\s+\S+)?\W*$|\W*(?i:over\s+|more\s+than\s+)?[
 # has an 80% reduction in approval times", seen live. "40% of the Fortune 500" and "15 global offices" stay.
 _RESULT_TILE = re.compile(r"\W*(?:up\s+to\s+|over\s+|more\s+than\s+|nearly\s+|almost\s+)?\d[\d.,]*\s*(?:%|x\b|×|times\b|percent\b)\s*"
                           r"(?:reduction|increase|decrease|faster|slower|more|less|fewer|lower|higher|savings?|saved|boost|"
-                          r"improvement|growth|lift|uplift|cut|drop|return|roi|better|quicker|cheaper)\b", re.IGNORECASE)
+                          r"improvement|growth|lift|uplift|cut|drop|return|roi|better|quicker|cheaper)\b"
+                          # "2,000+ hours reclaimed per year" became "Spendflo has 2,000+ hours reclaimed per year", seen live.
+                          r"|\W*(?:up\s+to\s+|over\s+|more\s+than\s+|nearly\s+|almost\s+)?[$€£]?\d[\d.,]*\S*\s+(?:[\w-]+\s+){0,3}?"
+                          r"(?:reclaimed|saved|recovered|reduced|eliminated|generated|booked|gained|won|avoided|freed|unlocked)\b", re.IGNORECASE)
 # A tile like "Trusted & Loved by 10,000+ teams" takes is, never has: "Persana AI has Trusted & Loved by" was seen live.
 # A heading's capitals don't belong mid-sentence: "Trumpet is Trusted by 15,000+ revenue teams" and "Machina Labs is Born
 # from SpaceX" were seen live.
