@@ -97,7 +97,7 @@ _SEQUENCE_SYSTEM = (
     f"Hi {{first_name}},\n{PERSONAL}\nIf late handoffs slow your drivers down, Pinecrest Freight lets you track every "
     "cold-chain lane in one place [1]. It runs six days a week out of Rotterdam [2].\nIs this worth a short call?\nBest,\n{sender}\n"
     "Use the buyer's problem for the conditions. Use different proof in each email, choosing the proof that most directly solves "
-    "the buyer's problem. Leave out proof about policies, data handling or setup unless the problem is about that. Never use proof about a different kind of customer than the buyer, such as hospitals when the buyer is schools. The last email is the shortest: one claim and one question. Each email asks a different question. You know nothing about the recipient's "
+    "the buyer's problem. Leave out proof about policies, data handling or setup unless the problem is about that. Never use proof about a different kind of customer than the buyer, such as hospitals when the buyer is schools. The last email is the shortest: one claim and one question. Each email asks a different question. At most one sentence per email starts with If, and each email names a different problem, or none. You know nothing about the recipient's "
     "company, so never state anything about it. Never pressure the reader. "
     "A subject is two to four plain words a colleague would write, naming the buyer's problem or that email's claim, like Handover time. Build it only from words in the proof list or the buyer's problem, with no placeholder. The only subjects that may use {company} are "
     "Question for {company} and the seller's name followed by for {company}."
@@ -161,7 +161,14 @@ def _someone_else_speaks(quote: str, url: str, company: str) -> bool:
         if any(found.start() != allowed for found in re.finditer(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text)):  # "Pilot-prepared" is theirs.
             return True
     path = re.sub(r"^https?://[^/]+", "", url or "")
-    return bool(_FIRST_PERSON.search(quote) and _STORY_PAGE.search(path))
+    if not _STORY_PAGE.search(path):
+        return False
+    # A story page is about their customer: "Default replaced a clunky LeanData + Marketo setup" happened at People Data
+    # Labs, and "between Cortex's existing systems" is Cortex's stack. Said to them alone, it reads as their own.
+    own = set(re.findall(r"[a-z0-9]+", name))
+    others = [word for word in re.findall(r"[A-Za-z0-9][\w&'’-]*", quote)[1:]
+              if word[0].isupper() and re.sub(r"['’]s$", "", word).lower() not in own]
+    return bool(_FIRST_PERSON.search(quote) or others)
 
 
 def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dict], int]:
@@ -443,7 +450,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
             return None, problem
         if problem:  # Good emails aren't thrown out over a subject. This one states nothing.
             subject = SAFE_SUBJECT
-        cited = asked = 0
+        cited = asked = conditions = 0
         for line in body.splitlines():
             for sentence in re.split(r"(?<=[.!?])\s+", line.strip()):
                 if not sentence:
@@ -455,6 +462,9 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
                     return None, f"{where}: name {brief['product_name']} in the first claim."
                 cited += has_source
                 asked += sentence.endswith("?")
+                conditions += bool(re.match(r"if\b", sentence, re.IGNORECASE))
+        if conditions > 1:  # Seen live: "If your reps spend hours... If many of your contacts..." reads like a form.
+            return None, f"{where} starts two sentences with If. Keep one."
         if not cited:
             return None, f"{where} needs at least one claim with a proof number."
         if not asked:

@@ -1181,6 +1181,12 @@ class EvidenceTests(unittest.TestCase):
         self.assertNotIn("[1]", emails[0]["body"])
         self.assertIn("in minutes.", emails[0]["body"])
 
+    def test_an_email_says_if_once(self):
+        """Seen live: email one opened two paragraphs in a row with If, which reads like a form."""
+        one = "Hi,\n[[PERSONAL]]\nIf your team takes card payments by phone, that is time away from buyers.\nStripe lets you accept payments online [1].\nWorth a call?"
+        self.assertTrue(validate_sequence(self.emails(one), self.BRIEF))
+        self.assert_refused(one.replace("Stripe lets", "If checkout is slow, Stripe lets"))
+
     def test_claims_with_no_source_never_reach_an_email(self):
         marker = "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?\n"
         for extra in ("Google, Stripe and Walmart all rely on us.", "Act fast and get started today.", "That keeps velocity up.",
@@ -1253,6 +1259,16 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(lines("We have implemented an AI trust framework", "Salesflare has implemented an AI trust framework.",
                               "https://salesflare.com/about-us"))
         self.assertTrue(lines("Trusted by 3,000+ businesses", "Salesflare is trusted by 3,000+ businesses."))
+        # Seen live: two lines to Default's VP came from case studies about People Data Labs and Cortex.
+        story = "https://www.default.com/case-study/how-people-data-labs-used-default"
+        self.assertFalse(lines("Default replaced a clunky LeanData + Marketo + Salesforce setup",
+                               "Default replaced a clunky LeanData + Marketo + Salesforce setup.", story, "Default"))
+        self.assertFalse(lines("Default now sits as the orchestration layer between Cortex’s existing systems",
+                               "Default now sits as the orchestration layer between Cortex’s existing systems.", story, "Default"))
+        self.assertTrue(lines("Revenue Grid is trusted by 6,500+ sales teams", "Revenue Grid is trusted by 6,500+ sales teams.",
+                              "https://revenuegrid.com/customers", "Revenue Grid"))
+        self.assertTrue(lines("Default replaced a clunky LeanData + Marketo + Salesforce setup",
+                              "Default replaced a clunky LeanData + Marketo + Salesforce setup.", "https://www.default.com/", "Default"))
 
     def test_a_negative_elsewhere_in_the_proof_does_not_block_a_subject(self):
         """One "no" on any page used to refuse every subject, and with it the whole sequence on 6 of 19 real sites."""
