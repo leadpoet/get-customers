@@ -41,7 +41,7 @@ _BULLET = re.compile(r"^• ([^:\n]{2,40}):(?= )")
 _LEAD = re.compile(r"^((?:[^\n:]{1,80}: )?\d+ verified contacts? (?:is|are) in\.|Approved [^\n]{1,80}\.$|Sent to [^\n]{1,120}\.$|"
                    r"Live\.|Your key is in\.|[^\n]{1,120} replied(?= \())")
 _DESK_HEAD = re.compile(r"^(\d+ of \d+ · )([^·\n]+)( · .*)$")
-_PERSON = re.compile(r"^[^\n:]{2,80}, [^\n:]{2,80} at [^\n:]{2,80}$")
+_PERSON = re.compile(r"^[^\n:]{2,80}(?:, [^\n:]{2,80})? at [^\n:]{2,80}$")  # A contact may have no role.
 _ADDRESS = re.compile(r"^\S+@\S+\.\S+$")
 
 

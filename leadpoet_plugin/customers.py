@@ -7,6 +7,7 @@ code tied to the exact content. Steps that wait on someone else resume from the 
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import re
 import threading
@@ -173,7 +174,13 @@ def _comparable(text: str) -> str:
     return re.sub(r"[.!;:,\s]+$", "", re.sub(r"\s+", " ", text.lower()).strip())
 
 
-def account_note(note: object, *requests: dict | None) -> str:
+def _who(person: dict) -> str:
+    """Seen live: a contact with no role read "Gus Ortiz,  at Parsable"."""
+    role = str(person.get("role") or "").strip()
+    return f"{person['name']}, {role} at {person['company']}" if role else f"{person['name']} at {person['company']}"
+
+
+def account_note(note: object, *requests: dict | None, company: str = "") -> str:
     """Leadpoet's "why this account" note, as the app shows it.
 
     A new account starts with the request's own text as a placeholder, which says what
@@ -189,7 +196,12 @@ def account_note(note: object, *requests: dict | None) -> str:
              for request in requests for key in ("request_description", "intent_signals")]
     if any(text in part for part in asked):
         return ""
-    return re.sub(r"\s+", " ", note).strip()
+    # Seen live: "hiring SDRs &amp; AEs" and "vareto is hiring" for Vareto. The note is shown and restated as it should read.
+    text = re.sub(r"\s+", " ", html.unescape(note)).strip()
+    name = company.strip()
+    if name and text[:len(name)].lower() == name.lower() and text[:len(name)].islower() and not text[len(name):len(name) + 1].isalnum():
+        text = name + text[len(name):]
+    return text
 
 
 _NOTE_SOURCE = "Source: Leadpoet's research on why they fit"
@@ -689,7 +701,7 @@ class Customers:
         for row in (best[company] for company in kept):
             people.append({"id": row["id"], "name": row.get("name") or "", "role": row.get("role") or "",
                            "company": row.get("company") or "", "email": row["email"], "website": row.get("website") or "",
-                           "why": account_note(row.get("icp_details"), *asked),
+                           "why": account_note(row.get("icp_details"), *asked, company=row.get("company") or ""),
                            "state": "research", "lines": [], "dropped": 0})
         return people
 
@@ -768,7 +780,7 @@ class Customers:
         return code_for(job["id"], *[self._person_code(job, person) for person in people])
 
     def _emails(self, person: dict) -> list[str]:
-        lines = [f"{person['name']}, {person['role']} at {person['company']}", person["email"]]
+        lines = [_who(person), person["email"]]
         if person.get("why") and not _from_note(person):
             lines.append(f"Why them: {short_note(person['why'])}")
         lines.append("")
@@ -812,7 +824,7 @@ class Customers:
                 lines += [f"Email {number} ({when}): {touch['subject']}", touch["body"], ""]
             blocks.append("\n".join(lines))
             for person in shared:
-                row = [f"{person['name']}, {person['role']} at {person['company']}", person["email"]]
+                row = [_who(person), person["email"]]
                 if person.get("why") and not _from_note(person):
                     row.append(f"Why them: {short_note(person['why'])}")
                 for entry in person["lines"]:

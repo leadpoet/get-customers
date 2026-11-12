@@ -110,6 +110,8 @@ class MarkCase(unittest.TestCase):
         person = "Marcus Oyelaran, VP Operations at Pinecrest Freight\nmarcus@pinecrest-freight.example\nWhy them: Posted a role."
         self.assertEqual(mark(person).split("\n")[0], "**Marcus Oyelaran, VP Operations at Pinecrest Freight**")
         self.assertIn("**Why them:** Posted a role.", mark(person))
+        # Seen live: a contact with no role.
+        self.assertEqual(mark("Gus Ortiz at Parsable\ngus@parsable.example").split("\n")[0], "**Gus Ortiz at Parsable**")
         self.assertEqual(mark("Email 2 (3 business days after the last one): the next shift"),
                          "**Email 2 (3 business days after the last one):** the next shift")
         self.assertEqual(mark("• Pinecrest Freight: Posted a night dispatcher role."), "• **Pinecrest Freight:** Posted a night dispatcher role.")

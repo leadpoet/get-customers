@@ -173,7 +173,10 @@ _HAS_PASSIVE = re.compile(r"\bhas\s+(?:trusted|loved|backed|chosen|rated|funded|
                           r"(?:\s*(?:&|and)\s*\w+)?\s+(?:by|in|on)\b", re.IGNORECASE)
 # Their pitch about themselves is not news to them. Seen live: "Bardeen is ideal for GTM teams across various roles".
 _SELF_PRAISE = re.compile(r"\b(?:is|are)\s+(?:the\s+|a\s+|an\s+)?(?:ideal|perfect|best|leading|premier|ultimate|go-to|#1|number one|"
-                          r"(?:built|designed|made)\s+for)\b", re.IGNORECASE)
+                          r"(?:built|designed|made)\s+for)\b"
+                          # Seen live: "Vareto usually pays for itself" and "an unmatched industrial data set".
+                          r"|\bpays?\s+for\s+itself\b|\b(?:unmatched|unrivall?ed|unparalleled|industry[- ]leading|best[- ]in[- ]class|"
+                          r"world[- ]class|second\s+to\s+none)\b", re.IGNORECASE)
 _STORY_PAGE = re.compile(r"/(?:customers?|customer-stor|case-stud|clients?|testimonials?|reviews?|stories|success|wall-of-love)"
                          r"|[?&](?:story|case|customer)=", re.IGNORECASE)
 # One customer's story, at /case-study/cortex or /customer-stories/cortex, is theirs from its first line to its last.
@@ -283,7 +286,8 @@ def _sentence(line: str) -> str:
     return f"{line}." if line and line[-1] not in ".!?" else line
 
 
-_HEDGE = re.compile(r"\b(?:may|might|could|likely|probably|possibly|perhaps|plans?|planning|considering|evaluating|"
+# "Planning to open" is a guess; "planning software" is what they sell (seen live, Vareto).
+_HEDGE = re.compile(r"\b(?:may|might|could|likely|probably|possibly|perhaps|plans?|planning(?=\s+(?:to|an?|the|its|their|for|on)\b)|considering|evaluating|"
                     r"appears?|seems?|reportedly|rumou?red|expected|potential(?:ly)?)\b", re.IGNORECASE)
 # "Hired a CRO in May" is a date, not a guess. "May open an office" and "Says It May Hire" still are.
 _MONTH_MAY = re.compile(r"\b(?:in|since|by|on|until|through|from|during|before|after|of|last|this|early|late|mid)[\s-]+May\b|"
@@ -295,7 +299,9 @@ _INFERENCE = re.compile(r",\s+(?:which\s+)?(?:indicat(?:ing|es|ed)|suggest(?:ing
                         r"underscor(?:ing|es|ed)|reflect(?:ing|s|ed)|demonstrat(?:ing|es|ed))\b")
 # A note may leave these off their name: "Spark Health" is Spark Health Inc. Any other missing word is another company.
 _NAME_SUFFIXES = frozenset({"inc", "incorporated", "llc", "ltd", "limited", "corp", "corporation", "co", "company", "plc", "gmbh",
-                            "ag", "sa", "bv", "pty", "lp", "llp", "group", "holdings", "technologies", "ai", "io", "hq"})
+                            "ag", "sa", "bv", "pty", "lp", "llp", "group", "holdings", "technologies", "ai", "io", "hq",
+                            # Seen live: "Cube posted" for Cube Software, "Arch hired" for Arch Systems.
+                            "software", "systems", "labs", "solutions", "technology"})
 _WORD = re.compile(r"[a-z0-9$%]+(?:['’][a-z]+)?", re.IGNORECASE)
 _LEAD_INS = frozenset({"is", "was", "has", "had", "have", "are", "were"})
 _DOUBT = re.compile(r"\b(?:thin|unconfirmed|unverified|unclear|(?:does|do|did) not confirm|not confirmed|no longer)\b", re.IGNORECASE)
@@ -440,6 +446,7 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     Only the note's first sentence, the event itself, can open: the rest explains the fit, and a closing "it does not
     show they are evaluating us" is not doubt about the event. Doubt about the evidence anywhere still means no line."""
     note = re.sub(r"\s+", " ", str(person.get("why") or "")).strip()
+    note = re.sub(r"\s+[—–]\s+", ", ", note)  # Seen live: "hired a VP of Sales — its first — and" could not be restated.
     signal = _sentence(_INFERENCE.split(_LEADING_WHEN.sub("", lead_sentence(note), count=1), 1)[0].rstrip(" ,;"))
     if not signal or _HEDGE.search(_MONTH_MAY.sub("", signal)) or _DOUBT.search(note):  # A guess is not a reason to write.
         return [], 0

@@ -1366,6 +1366,13 @@ class EvidenceTests(unittest.TestCase):
             self.assertFalse(lines(quote, quote + ".", "https://www.bardeen.ai/", "Bardeen"), quote)
         self.assertTrue(lines("Bardeen is used by 200,000 GTM teams", "Bardeen is used by 200,000 GTM teams.",
                               "https://www.bardeen.ai/", "Bardeen"))
+        # Seen live: a boast, said back to them.
+        for quote, line, site, company in (
+                ("Vareto usually pays for itself within the first few months.", "Vareto usually pays for itself within the first few months.",
+                 "https://www.vareto.com/", "Vareto"),
+                ("15M+ frontline jobs analyzed, an unmatched industrial data set", "Augmentir has 15M+ frontline jobs analyzed, an unmatched industrial data set.",
+                 "https://www.augmentir.com/", "Augmentir")):
+            self.assertFalse(lines(quote, line, site, company), quote)
         # Found in review: a customer's result on a story list, or on a customer-stories page, or quoted without "our".
         result = "Response rates doubled within the first month"
         for url in ("https://acme.com/customer-stories/cortex", "https://acme.com/clients/cortex", "https://acme.com/customers?story=cortex"):
@@ -1669,6 +1676,32 @@ class SignalOpenerTests(unittest.TestCase):
         self.assertEqual(self.line("Ramp may be starting outbound.", why="Ramp may be starting outbound. It posted one role."), ([], 0))
         self.assertEqual(self.line("Ramp posted one AE role.", why="Ramp posted one AE role. The evidence is thin."), ([], 0))
         self.assertEqual(self.line("Ramp Inc. hired a CRO.", why="Ramp Inc. hired a CRO in May. It is building a team.")[0], [])
+
+    def test_run_fifteen_notes_open(self):
+        """Seen live in one run: four of ten notes lost their opener to how they were written, not what they said."""
+        from leadpoet_plugin.customers import account_note
+        from leadpoet_plugin.writer import signal_opener
+        def opener(company, site, note, line):
+            llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": line})))
+            why = account_note(note, company=company)
+            return why, [row["line"] for row in signal_opener(llm, {"company": company, "website": site, "why": why})[0]]
+        tail = " The evidence confirms hiring; it does not show that they are evaluating Leadpoet."
+        for company, site, note, line in (
+                ("Vareto", "https://www.vareto.com", "vareto is hiring two SDRs in Seattle to sell planning software to finance leaders.",
+                 "Vareto is hiring two SDRs in Seattle to sell planning software to finance leaders."),
+                ("Arch Systems", "https://archsys.io", "In October 2026, Arch hired a VP of Sales — its first — and posted four SDR roles.",
+                 "Arch hired a VP of Sales, its first, and posted four SDR roles."),
+                ("Augmentir", "https://www.augmentir.com", "Augmentir is hiring SDRs &amp; AEs in Raleigh to sell software to plant managers.",
+                 "Augmentir is hiring SDRs & AEs in Raleigh to sell software to plant managers."),
+                ("Cube Software", "https://www.cubesoftware.com", "Cube posted three SDR roles on 30 October 2026.",
+                 "Cube posted three SDR roles on 30 October 2026.")):
+            why, lines = opener(company, site, note + tail, line)
+            self.assertEqual(lines, [line], company)
+            self.assertNotIn("&amp;", why)
+            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube")), why)
+        # Planning to do something is still a guess, and a different word after their name is someone else.
+        self.assertEqual(opener("Acme", "https://acme.com", "Acme is planning to open a Denver office.", "Acme is planning to open a Denver office.")[1], [])
+        self.assertEqual(opener("Arch Systems", "https://archsys.io", "Arch Capital hired a VP of Sales.", "Arch Capital hired a VP of Sales.")[1], [])
 
     def test_a_note_that_writes_their_name_its_own_way_still_opens(self):
         """About 1,300 of 5,715 real notes shortened or punctuated the name ("Spark Health" for Spark Health Inc), and lost their opener."""
