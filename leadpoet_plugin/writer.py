@@ -763,11 +763,15 @@ def fits(touches: list[dict]) -> bool:
 
 
 _INITIAL = re.compile(r"[^\W\d_]\.")
+_HONORIFIC = re.compile(r"(?i)(dr|mr|mrs|ms|mx|prof|sir|dame)\.?")
 
 
 def first_name(person: dict) -> str:
-    """Seen live: "Hi J.," for J. R. Ruiz. Initials stay together; a name after them is the one they go by (F. Scott)."""
+    """Seen live: "Hi J.," for J. R. Ruiz. Initials stay together; a name after them is the one they go by (F. Scott).
+    A title before the name is not the name: "Dr. Amy Fox" is greeted as Amy."""
     parts = str(person.get("name") or "").split()
+    while len(parts) > 1 and _HONORIFIC.fullmatch(parts[0]):
+        parts = parts[1:]
     initials = 0
     while initials < len(parts) - 1 and _INITIAL.fullmatch(parts[initials]):
         initials += 1

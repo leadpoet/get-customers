@@ -1874,7 +1874,9 @@ class SignalOpenerTests(unittest.TestCase):
     def test_the_greeting_uses_the_name_they_go_by(self):
         from leadpoet_plugin.writer import first_name
         for name, first in (("J. R. Ruiz", "J. R."), ("F. Scott Fitzgerald", "Scott"), ("J.R. Ruiz", "J.R."), ("J. Ruiz", "J."),
-                            ("Mary-Kate Doyle", "Mary-Kate"), ("Kai Dunn", "Kai"), ("Cher", "Cher"), ("", "there")):
+                            ("Mary-Kate Doyle", "Mary-Kate"), ("Kai Dunn", "Kai"), ("Cher", "Cher"), ("", "there"),
+                            ("Dr. Amy Fox", "Amy"), ("Prof. Ana Lima", "Ana"), ("MR Tom Berg", "Tom"), ("Dr. J. R. Ruiz", "J. R."),
+                            ("Drew Lane", "Drew"), ("Sir", "Sir")):
             self.assertEqual(first_name({"name": name}), first, name)
 
     def test_the_first_sentence_survives_abbreviations(self):
