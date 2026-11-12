@@ -574,6 +574,10 @@ def _sentence_problem(sentence: str, brief: dict, proof_words: set[str]) -> tupl
             return f'"{plain}" talks about the seller before naming it.', True
         if _FIRST_PERSON.search(claim):
             return f'"{plain}" speaks as we or I. Use the name {product} instead.', True
+        rest = claim[len(product):] if claim.lower().startswith(product.lower()) else claim[len(claim.split(" ")[0]):]
+        if condition and re.match(r"\s+(?:is|are)\s+(?:a|an|the|one)\b", rest, re.IGNORECASE):
+            # Seen live, run 22: "If researching ... takes your team hours, Leadpoet is a B2B lead sourcing platform" answers no If.
+            return f'"{plain}" answers its If with what {product} is. Say what {product} does about that problem.', True
         name = _seller_word(product)
         if not (not name or name in _words(claim) or re.match(r"(?:it|its)\b", claim, re.IGNORECASE)):
             return f'"{plain}" is a fragment. Make it a full sentence with {product} as the subject.', True

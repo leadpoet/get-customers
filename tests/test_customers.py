@@ -1283,6 +1283,11 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(validate_sequence(self.emails(good), self.BRIEF))
         self.assert_refused(good.replace("accept payments", "accept all payments"))
         self.assert_refused(good.replace("drags at {company}, Stripe", "drags at {company} everyone loves Stripe and Stripe"))
+        # Seen live, run 22: an If answered with what the seller is, not what it does about it.
+        brief = {"product_name": "Stripe", "facts": [{"text": "t", "said_by": "seller", "quote": "Stripe is a platform to accept payments online"}]}
+        said = "Hi,\n[[PERSONAL]]\nStripe is a platform to accept payments online [1].\nWorth a call?"
+        self.assertTrue(validate_sequence(self.emails(said), brief))
+        self.assertIsNone(validate_sequence(self.emails(said.replace("Stripe is", "If billing drags at {company}, Stripe is")), brief))
 
     def test_only_two_subjects_may_name_their_company(self):
         def subject(text):
