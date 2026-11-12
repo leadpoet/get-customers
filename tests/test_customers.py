@@ -1203,6 +1203,22 @@ class EvidenceTests(unittest.TestCase):
         two = {**brief, "facts": brief["facts"][:2]}
         self.assertTrue(validate_sequence(emails("If checkout drags, Stripe lets you accept payments online [1]."), two))
 
+    def test_no_email_only_names_what_the_seller_is(self):
+        """Seen live: email three was only "Leadpoet is a B2B lead sourcing and outreach platform." and a question."""
+        from leadpoet_plugin.writer import check_sequence
+        brief = {"product_name": "Stripe", "facts": [{"text": "t", "said_by": "seller", "quote": quote} for quote in
+                                                      ("Accept payments online", "Send invoices in minutes",
+                                                       "a payments platform for internet businesses")]}
+        def emails(third):
+            return {"emails": [{"subject": "payments", "body": "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?"},
+                               {"subject": "payments", "body": "Stripe lets you send invoices in minutes [2]. Who handles billing?"},
+                               {"subject": "payments", "body": f"{third} Open to a short call?"}]}
+        bare = emails("Stripe is a payments platform for internet businesses [3].")
+        self.assertIsNone(validate_sequence(bare, brief))
+        self.assertTrue(check_sequence(bare, brief, safe_subjects=True)[0])
+        self.assertTrue(validate_sequence(emails("Stripe is a payments platform for internet businesses [3]. "
+                                                 "It lets you send invoices in minutes [2]."), brief))
+
     def test_claims_with_no_source_never_reach_an_email(self):
         marker = "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?\n"
         for extra in ("Google, Stripe and Walmart all rely on us.", "Act fast and get started today.", "That keeps velocity up.",
@@ -1678,6 +1694,11 @@ class SignalOpenerTests(unittest.TestCase):
         self.assertEqual(lead_sentence("Acme hired a CRO in Oct. The team grew."), "Acme hired a CRO in Oct.")
         self.assertTrue(short_note("word " * 80).endswith("…"))
         self.assertLessEqual(len(short_note("word " * 80)), 221)
+        # Seen live: a long note was cut to "...write their own cold emails and…".
+        long = ("CloudTalk posted nine SDR and account executive roles across Paris, New York, Sydney and Madrid in October "
+                "2026, each asking reps to research accounts, build prospect lists from scratch, write their own cold emails "
+                "and book meetings for enterprise account executives. More.")
+        self.assertTrue(short_note(long).endswith("cold emails…"), short_note(long))
 
     def test_the_signal_opens_and_a_site_fact_stands_in_without_one(self):
         customers = Customers(StockApi(), Store(Path(tempfile.mkdtemp()) / "a.db"), StockLlm(), stock_fetch)

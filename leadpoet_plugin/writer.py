@@ -293,7 +293,12 @@ def lead_sentence(note: str) -> str:
 def short_note(note: str, limit: int = MAX_LINE_CHARS) -> str:
     """What a phone shows of a note: its first sentence, cut at a word if it runs long."""
     first = lead_sentence(note)
-    return first if len(first) <= limit else first[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+    if len(first) <= limit:
+        return first
+    words = first[:limit].rsplit(" ", 1)[0].rstrip(",;:").split(" ")
+    while len(words) > 1 and words[-1].lower().strip(",;:") in GRAMMAR:  # Seen live: "write their own cold emails and…".
+        words.pop()
+    return " ".join(words).rstrip(",;:") + "…"
 
 
 def _tokens(text: str) -> list[str]:
@@ -529,6 +534,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
         if problem:  # Good emails aren't thrown out over a subject. This one states nothing.
             subject = SAFE_SUBJECT
         cited = asked = conditions = 0
+        claims: list[str] = []
         for line in body.splitlines():
             for sentence in re.split(r"(?<=[.!?])\s+", line.strip()):
                 if not sentence:
@@ -539,6 +545,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
                 if has_source and not cited and re.match(r"(?:it|its|if[^,]*,\s*it)\b", _CITATION.sub("", sentence).strip(), re.IGNORECASE):
                     return None, f"{where}: name {brief['product_name']} in the first claim."
                 cited += has_source
+                claims += [_CITATION.sub("", sentence).strip()] if has_source else []
                 asked += sentence.endswith("?")
                 conditions += bool(re.match(r"if\b", sentence, re.IGNORECASE)) and not sentence.endswith("?")
         if conditions > 1:  # Seen live: "If your reps spend hours... If many of your contacts..." reads like a form.
@@ -552,6 +559,12 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
         earlier = next((spot for spot, before in enumerate(used, 1) if cites <= before), 0)
         if earlier and len({fact["quote"] for fact in brief["facts"]}) >= 3 and not safe_subjects:
             return None, f"{where} makes email {earlier}'s claim again. Use a different proof."
+        # Seen live: email three was only "Leadpoet is a B2B lead sourcing and outreach platform." It names a kind of
+        # product and solves nothing. With three or more proofs there is one that says what it does.
+        what_it_is = re.compile(rf"(?:if[^,]*,\s*)?{re.escape(brief['product_name'])}\s+is\s+an?\s", re.IGNORECASE)
+        if (all(what_it_is.match(claim) for claim in claims) and len({fact["quote"] for fact in brief["facts"]}) >= 3
+                and not safe_subjects):
+            return None, f"{where} only says what {brief['product_name']} is. Use a proof that says what it does."
         used.append(cites)
         cleaned.append({"subject": subject, "body": _tidy(bare)})
     return cleaned, ""
