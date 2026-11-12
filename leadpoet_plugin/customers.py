@@ -772,7 +772,7 @@ class Customers:
         lines.append("")
         if person["lines"]:
             for entry in person["lines"]:
-                source = [f"Source: \"{entry['quote']}\"", entry["url"]] if entry["url"] else [_NOTE_SOURCE]
+                source = [f"Source: \"{' '.join(entry['quote'].split())}\"", entry["url"]] if entry["url"] else [_NOTE_SOURCE]
                 lines += [f"Personal line: {entry['line']}", *source, ""]
         else:
             lines += ["No personal line. I couldn't prove one, so there isn't one.", ""]
@@ -815,7 +815,7 @@ class Customers:
                     row.append(f"Why them: {short_note(person['why'])}")
                 for entry in person["lines"]:
                     row += [f"Personal line: {entry['line']}",
-                            f"Source: \"{entry['quote']}\" {entry['url']}" if entry["url"] else _NOTE_SOURCE]
+                            f"Source: \"{' '.join(entry['quote'].split())}\" {entry['url']}" if entry["url"] else _NOTE_SOURCE]
                 if not person["lines"]:
                     row.append("No personal line I could prove, so email 1 goes without one.")
                 blocks.append("\n".join(row) + "\n")

@@ -1320,6 +1320,8 @@ class EvidenceTests(unittest.TestCase):
         # Seen live: a heading's capitals went out mid-sentence as "Trumpet is Trusted by 15,000+ revenue teams".
         self.assertEqual(lines("Trusted by 15,000+ revenue teams", "Trumpet is Trusted by 15,000+ revenue teams.",
                                "https://www.sendtrumpet.com/", "Trumpet")[0]["line"], "Trumpet is trusted by 15,000+ revenue teams.")
+        self.assertEqual(lines("Born from SpaceX, Relativity and Novelis", "Machina Labs is Born from SpaceX, Relativity and Novelis.",
+                               "https://machinalabs.ai/", "Machina Labs")[0]["line"], "Machina Labs is born from SpaceX, Relativity and Novelis.")
         # Seen live on bardeen.ai: their own positioning, said back to them.
         for quote in ("Bardeen is ideal for GTM teams across various roles including Sales (SDRs, AEs)",
                       "Bardeen is the leading AI agent for GTM teams", "Bardeen is built for GTM teams"):

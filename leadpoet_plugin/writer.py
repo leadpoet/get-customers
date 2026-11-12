@@ -155,8 +155,10 @@ def _opens_on_company(line: str, person: dict) -> bool:
 # number with a word or two, or a number with only capitalized words after it: "10,000+ Sales Professionals".
 _STAT_TILE = re.compile(r"\W*\S+(?:\s+\S+)?\W*$|\W*(?i:over\s+|more\s+than\s+)?[$€£]?\d[\d.,]*\S*(?:\s+[A-Z&][\w&'’-]*)+\W*$")
 # A tile like "Trusted & Loved by 10,000+ teams" takes is, never has: "Persana AI has Trusted & Loved by" was seen live.
-# A heading's capitals don't belong mid-sentence: "Trumpet is Trusted by 15,000+ revenue teams" was seen live.
-_BADGE_CASE = re.compile(r"\b(?:is|are)\s+(?:Trusted|Loved|Used|Backed|Chosen|Rated|Funded|Recognized|Recognised|Featured|Powered)"
+# A heading's capitals don't belong mid-sentence: "Trumpet is Trusted by 15,000+ revenue teams" and "Machina Labs is Born
+# from SpaceX" were seen live.
+_BADGE_CASE = re.compile(r"\b(?:is|are|was|were)\s+(?:Trusted|Loved|Used|Backed|Chosen|Rated|Funded|Recognized|Recognised|Featured|"
+                         r"Powered|Born|Founded|Based|Headquartered|Known|Made)"
                          r"(?:\s*(?:&|and)\s*[A-Z]\w+)?\b")
 _HAS_PASSIVE = re.compile(r"\bhas\s+(?:trusted|loved|backed|chosen|rated|funded|recognized|recognised|featured|used|powered)\b"
                           r"(?:\s*(?:&|and)\s*\w+)?\s+(?:by|in|on)\b", re.IGNORECASE)
