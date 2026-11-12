@@ -1194,9 +1194,9 @@ class EvidenceTests(unittest.TestCase):
                             ("Acme: your next opportunity is here.", "your next opportunity is here")):
             self.assertFalse(line_is_supported(line, quote, self.PERSON), line)
 
-    def emails(self, first):
-        return {"emails": [{"subject": "payments", "body": first}, {"subject": "payments", "body": "Stripe lets you accept payments online [1]. Worth a call?"},
-                           {"subject": "payments", "body": "Stripe lets you accept payments online [1]. Worth a call?"}]}
+    def emails(self, first, later=("Stripe lets you accept payments online [1]. Worth a call?",) * 2):
+        return {"emails": [{"subject": "payments", "body": first}] + [{"subject": "invoices" if "invoices" in body else "payments", "body": body}
+                                                                     for body in later]}
 
     def assert_refused(self, first):
         self.assertIsNone(validate_sequence(self.emails(first), self.BRIEF), first)
@@ -1211,10 +1211,25 @@ class EvidenceTests(unittest.TestCase):
         brief = {"product_name": "Stripe", "facts": [{"text": "t", "said_by": "seller", "quote": "Accept payments online in minutes"},
                                                      {"text": "t", "said_by": "seller", "quote": "Stripe sends invoices"}]}
         once = "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1]. It sends invoices [2].\nWorth a call?"
-        self.assertTrue(validate_sequence(self.emails(once), brief))
-        self.assertIsNone(validate_sequence(self.emails(once.replace("It sends", "Stripe sends")), brief))
+        later = ("Stripe lets you accept payments online in minutes [1]. Worth a call?", "Stripe lets you accept payments in minutes [1]. Open to a call?")
+        self.assertTrue(validate_sequence(self.emails(once, later), brief))
+        self.assertIsNone(validate_sequence(self.emails(once.replace("It sends", "Stripe sends"), later), brief))
         apart = "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nStripe sends invoices [2].\nWorth a call?"
-        self.assertTrue(validate_sequence(self.emails(apart), brief))  # Two paragraphs may each open on the name.
+        self.assertTrue(validate_sequence(self.emails(apart, later), brief))  # Two paragraphs may each open on the name.
+
+    def test_no_email_repeats_another_word_for_word(self):
+        """Seen live, run 27: with two proofs, email three said email one's sentence again word for word."""
+        from leadpoet_plugin.writer import check_sequence
+        brief = {"product_name": "Stripe", "facts": [{"text": "t", "said_by": "seller", "quote": "Accept payments online in minutes"},
+                                                     {"text": "t", "said_by": "seller", "quote": "Stripe sends invoices"}]}
+        first = "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?"
+        repeat = self.emails(first, ("Stripe sends invoices [2]. Who handles billing?", "Stripe lets you accept payments online [1]. Open to a call?"))
+        emails_back, problem = check_sequence(repeat, brief)
+        self.assertIsNone(emails_back)
+        self.assertIn("repeats a sentence from email 1", problem)
+        self.assertTrue(check_sequence(repeat, brief, safe_subjects=True)[0])  # Kept in hand rather than losing all three.
+        self.assertTrue(validate_sequence(self.emails(first, ("Stripe sends invoices [2]. Who handles billing?",
+                                                              "Stripe lets you accept payments online in minutes [1]. Open to a call?")), brief))
 
     def test_only_one_email_asks_who_handles_it(self):
         """Seen live, run 22: email two asked "Who handles outbound prospecting?" and email three "Who handles lead research?"."""
@@ -1457,7 +1472,8 @@ class EvidenceTests(unittest.TestCase):
         brief = {"product_name": "Stripe", "facts": [{"text": "t", "said_by": "seller", "quote": "Accept payments online in minutes"},
                                                      {"text": "t", "said_by": "seller", "quote": "Stripe has no setup fees"}],
                  "problem": "Setup fees eat into margins."}
-        mail = self.emails("Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?")
+        mail = self.emails("Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?",
+                           ("Stripe lets you accept payments online in minutes [1]. Worth a call?", "Stripe lets you accept payments in minutes [1]. Open to a call?"))
         self.assertTrue(validate_sequence(mail, brief))
         mail["emails"][0]["subject"] = "No setup fees"
         self.assertTrue(validate_sequence(mail, brief))
@@ -1918,7 +1934,7 @@ class SignalOpenerTests(unittest.TestCase):
                             ("RAVI SHAH", "Ravi"), ("anna kim", "Anna"), ("li wei", "Li"), ("JEAN-LUC MOREAU", "Jean-Luc"),
                             ("AJ SMITH", "AJ"), ("j. r. ruiz", "J. R."), ("DeShawn Ray", "DeShawn"), ("DR. AMY FOX", "Amy"),
                             # Run 24: a nickname in quotes is the name they go by.
-                            ('Robert "Bob" Lee', "Bob"), ("Katherine “Kate” Bell", "Kate"), ("William (Bill) Ng", "Bill"), ('ROBERT "BOB" LEE', "Bob"), ("Ana Silva (Sales)", "Ana"), ("Jane Doe (she/her)", "Jane")):
+                            ('Robert "Bob" Lee', "Bob"), ("Katherine “Kate” Bell", "Kate"), ("Kristopher 'Kris' Hall", "Kris"), ("Liam O'Connor-Smith", "Liam"), ("William (Bill) Ng", "Bill"), ('ROBERT "BOB" LEE', "Bob"), ("Ana Silva (Sales)", "Ana"), ("Jane Doe (she/her)", "Jane")):
             self.assertEqual(first_name({"name": name}), first, name)
 
     def test_the_first_sentence_survives_abbreviations(self):

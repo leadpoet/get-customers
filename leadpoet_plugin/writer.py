@@ -667,7 +667,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
     quotes = " ".join(fact["quote"] for fact in brief["facts"])
     proof = numbers_in(quotes)
     proof_words = _words(quotes)
-    cleaned, used, problems, openings = [], [], [], []
+    cleaned, used, problems, openings, sentences = [], [], [], [], []
     for index, email in enumerate(emails):
         if not isinstance(email, dict):
             return None, "Each email needs a subject and a body."
@@ -730,6 +730,11 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
         # Seen live: email three made email one's claim again. With three or more proofs there is one for each email.
         cites = {number for found in _CITATION.findall(body) for number in re.findall(r"\d+", found)}
         earlier = next((spot for spot, before in enumerate(used, 1) if cites <= before), 0)
+        # Seen live, run 27: with two proofs, email three said email one's "Leadpoet lets you get contacts at ..." word for word.
+        stated = {re.sub(r"\W+", " ", claim).strip().lower() for claim in claims}
+        twice = next((spot for spot, before in enumerate(sentences, 1) if stated & before), 0)
+        if twice and len({fact["quote"] for fact in brief["facts"]}) >= 2 and not safe_subjects:  # One proof can only be said one way.
+            return None, f"{where} repeats a sentence from email {twice} word for word. Say it another way, tied to a different problem."
         if earlier and len({fact["quote"] for fact in brief["facts"]}) >= 3 and not safe_subjects:
             return None, f"{where} makes email {earlier}'s claim again. Use a different proof."
         # Seen live: email three was only "Leadpoet is a B2B lead sourcing and outreach platform." It names a kind of
@@ -750,6 +755,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
         problems.append(condition)
         openings.append(opening)
         used.append(cites)
+        sentences.append(stated)
         cleaned.append({"subject": subject, "body": _tidy(bare)})
     return cleaned, ""
 
@@ -806,7 +812,7 @@ def first_name(person: dict) -> str:
     if _PLACEHOLDER.search(" ".join(parts)):  # "[name]" in the shared preview is a slot, not a name.
         return " ".join(parts)
     # Run 24: Robert "Bob" Lee goes by Bob. Only right after the first name, before a surname: not "Ana Silva (Sales)".
-    nickname = len(parts) > 2 and re.fullmatch(r"[\"“(]([^\W\d_][\w'’.-]*)[\"”)],?", parts[1])
+    nickname = len(parts) > 2 and re.fullmatch(r"[\"“'‘(]([^\W\d_][\w'’.-]*)[\"”'’)],?", parts[1])
     if nickname:
         parts = [nickname.group(1)]
     while len(parts) > 1 and _HONORIFIC.fullmatch(parts[0]):
