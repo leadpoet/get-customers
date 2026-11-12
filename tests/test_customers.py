@@ -945,6 +945,19 @@ class ProofCase(unittest.TestCase):
                "facts": [{"text": "They run 5 new offices in Ohio.", "said_by": "seller", "quote": "We run 150 offices across the whole of Ohio", "url": "https://a.example/"}]}
         self.assertIsNone(validate_brief(raw, scan))
 
+    def test_job_titles_read_as_titles(self):
+        from unittest import mock
+        from leadpoet_plugin.brief import validate_brief
+        scan = Scan("a.example", [Page("https://a.example/", "t", "We run 150 offices across the whole of Ohio")])
+        raw = {"summary": "s", "buyer_description": "c",
+               "roles": ["Marketing manager", "VP of Marketing", "head of e-commerce", "CFO", "Marketing Manager",
+                         "responsable de compras", "Freelancer doing their own bookkeeping"],
+               "facts": [{"text": "They run 150 offices.", "said_by": "seller", "quote": "We run 150 offices across the whole of Ohio", "url": "https://a.example/"}]}
+        with mock.patch("leadpoet_plugin.brief.MAX_ROLES", 6):
+            roles = validate_brief(raw, scan)["buyers"]
+        self.assertEqual(roles, ["Marketing Manager", "VP of Marketing", "Head of E-commerce", "CFO", "Responsable de Compras",
+                                 "Freelancer doing their own bookkeeping"])
+
     def test_hidden_page_text_is_not_read(self):
         from leadpoet_plugin.website import _parse
         html = ('<body><div style="' + "dis" + 'play:none"><div>secret one</div>secret two</div><p hidden>secret three</p>'

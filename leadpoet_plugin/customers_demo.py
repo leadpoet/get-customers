@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from types import SimpleNamespace
 from typing import Any
 
@@ -75,6 +76,31 @@ _SIGNAL_LINES = {
 }
 
 
+_DATES = ("Oct 28", "Oct 21")
+_WITHIN = re.compile(r"\s*\(within the [^)]*\)")
+
+
+def fitted(brief: dict) -> list[dict]:
+    """The made-up people, shaped like the user's own search: its roles, and its buying signals as the reason.
+
+    The stock reasons are about freight shifts, which reads wrong above an email about anything else.
+    """
+    from .brief import signal_line
+
+    roles = [role for role in brief.get("buyers") or [] if isinstance(role, str) and role]
+    events = [_WITHIN.sub("", signal_line(signal)).rstrip(".") for signal in brief.get("signals") or []
+              if isinstance(signal, dict) and "source" in signal and signal.get("description")]
+    people = []
+    for index, stock in enumerate(PEOPLE):
+        person = {key: value for key, value in stock.items() if key != "icp_details"}
+        if roles:
+            person["role"] = roles[index % len(roles)]
+        if index < min(len(events), len(_DATES)):
+            person["icp_details"] = f"{events[index]}, on {_DATES[index]}."
+        people.append(person)
+    return people
+
+
 class DemoLlm:
     """Stand-in model, so the demo needs no key and costs nothing. Its output goes through the same checks."""
 
@@ -101,6 +127,7 @@ class DemoCustomersApi:
         self._drafts: dict[str, dict] = {}
         self._live: set[str] = set()
         self.sender_name = "Sam at Sunnyday"
+        self.fit: dict | None = None  # The user's own brief, when the demo reads their real site.
 
     def identity(self) -> dict:
         from .customers import SCOPES
@@ -126,7 +153,7 @@ class DemoCustomersApi:
         return []
 
     def pipeline_contacts(self, icp_id: str | None) -> list[dict]:
-        return [dict(person) for person in PEOPLE]
+        return fitted(self.fit) if self.fit else [dict(person) for person in PEOPLE]
 
     def email_accounts(self) -> list[dict]:
         return [{"id": "demo-sender", "channel": "email", "status": "active", "paused": False}]

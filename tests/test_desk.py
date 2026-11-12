@@ -555,6 +555,30 @@ class PluginCase(unittest.TestCase):
         sender = plugin.customers().api.profile()["profile"]["voice"]["sender_name"]
         self.assertNotIn("Sunnyday", sender)
 
+    def test_demo_on_your_own_site_has_prospects_that_fit_your_search(self):
+        from leadpoet_plugin.brief import signals_text
+        from leadpoet_plugin.customers import account_note
+        plugin = self.make()
+        plugin.command("demo", platform="telegram", source=self.dm())
+        stock = plugin.customers().api.pipeline_contacts(None)
+        self.assertEqual(stock[0]["role"], "VP Operations")
+        self.assertIn("night dispatcher", stock[0]["icp_details"])
+        brief = {"product_name": "Jani-King", "domain": "janiking.example", "buyers": ["Facilities Manager", "Property Manager"],
+                 "signals": [{"source": "job_postings", "description": "Posted a Facilities Manager role to oversee an outsourced "
+                              "janitorial contractor. Source: LinkedIn Jobs posting, past 30 days"}]}
+        store = plugin._store("demo")
+        store.put("own_site", "1")
+        store.put("customers_job", json.dumps({"id": "abcd12345678", "stage": "scanned", "people": [], "emails": None,
+                                               "created_at": 1.0, "brief": brief}))
+        people = plugin.customers().api.pipeline_contacts(None)
+        self.assertEqual([row["role"] for row in people], ["Facilities Manager", "Property Manager", "Facilities Manager"])
+        self.assertEqual(people[0]["icp_details"], "Posted a Facilities Manager role to oversee an outsourced janitorial contractor, on Oct 28.")
+        self.assertEqual([row["name"] for row in people], [row["name"] for row in stock])
+        self.assertNotIn("icp_details", people[1])
+        # The reason is shown: it is not a copy of what the request asked for.
+        asked = {"intent_signals": signals_text(brief)}
+        self.assertEqual(account_note(people[0]["icp_details"], asked), people[0]["icp_details"])
+
     def test_leaving_the_demo_returns_to_the_real_search(self):
         plugin = self.make()
         self.assertIn("Start for real", plugin.customers_command("demo off", platform="telegram", source=self.dm()))

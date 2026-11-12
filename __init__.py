@@ -145,6 +145,8 @@ class Plugin:
             own_site = self._store("demo").get("own_site") == "1" and llm is not None
             if own_site:  # Emails about your real site are signed with its name, not the fictional seller's.
                 self._demo_customers.sender_name = ""
+                job = Customers(None, self._store("demo")).job()
+                self._demo_customers.fit = job["brief"] if job else None  # So the made-up prospects fit this search.
             return Customers(self._demo_customers, self._store("demo"), llm if own_site else DemoLlm(), demo_fetch,
                              say=self._say() if own_site else None)
         key = get_key()
