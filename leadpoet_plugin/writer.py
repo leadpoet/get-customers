@@ -374,9 +374,10 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     # Adjustments, a Cadex Company). The longer match wins. A one-word bare name can be an ordinary word ("Home sales
     # rose" for Home | Acme Roofing), so only the full record can match it. Notes also drop words a legal name keeps
     # ("Juro hired" for Juro Online Ltd). Either one word stands for them when their website is named for it: juro.com,
-    # gorattle.com for Rattle (Rattle Software Inc.), default.com for Default - Inbound Automation.
+    # gorattle.com for Rattle (Rattle Software Inc.), default.com for Default - Inbound Automation, remote.com for Remote.com.
     bare = _bare_name(record)
     first = bare.split()[0].strip(",.") if bare.split() else ""
+    first = re.sub(r"\.[a-z]{2,4}$", "", first, flags=re.IGNORECASE)  # Seen live: "Remote acquired" for Remote.com.
     found = [_name_in_note(signal, name) for name in dict.fromkeys(
         (record, bare if " " in bare else record, first if _site_carries(person.get("website"), first) else record))]
     company = max((name for name in found if name), key=len, default=None if None in found else "")

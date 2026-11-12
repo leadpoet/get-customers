@@ -1646,7 +1646,8 @@ class SignalOpenerTests(unittest.TestCase):
                                         ("Outplay | Sales Engagement Platform", "outplayhq.com", "Outplay is hiring four SDRs."),
                                         ("Juro Online Ltd", "juro.com", "Juro hired a CRO on 3 October 2026."),
                                         ("Dealfront Systems, Inc.", "https://www.dealfront.com/", "Dealfront is hiring six SDRs in Boston."),
-                                        ("Trumpet | Digital Sales Rooms", "https://www.sendtrumpet.com", "Trumpet posted two SDR roles.")):
+                                        ("Trumpet | Digital Sales Rooms", "https://www.sendtrumpet.com", "Trumpet posted two SDR roles."),
+                                        ("Remote.com", "https://remote.com", "Remote acquired a payroll startup in October 2026.")):
             self.assertEqual(on_site(company, site, sentence), [sentence], company)
         # Seen live: "In October 2026, Kixie hired four SDRs" put the date first and lost its line. A place first still refuses.
         llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": "Kixie hired four SDRs in Denver."})))
@@ -1658,7 +1659,8 @@ class SignalOpenerTests(unittest.TestCase):
                                         ("Alpine, an ITW Company", "alpine.com", "Alpine Electronics hired a CRO."),
                                         ("Bank of the West", "bankofthewest.com", "Bank of America acquired a fintech."),
                                         ("Acme Group", "acme.com", "Acme Health raised $20M."),
-                                        ("Juro Online Ltd", "", "Juro hired a CRO on 3 October 2026.")):
+                                        ("Juro Online Ltd", "", "Juro hired a CRO on 3 October 2026."),
+                                        ("Remote.com", "https://remotework.io", "Remote acquired a payroll startup.")):
             self.assertEqual(on_site(company, site, sentence), [], company)
         self.assertEqual(opener("Kahuna | Skills Platform", "Hiring SDR managers.", "Kahuna | Skills Platform is hiring SDR managers."), [])
         self.assertEqual(opener("Kahuna | Skills Platform", "Hiring SDR managers.", "Kahuna is hiring SDR managers."),
