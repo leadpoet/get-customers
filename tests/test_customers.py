@@ -1212,6 +1212,23 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(validate_sequence(self.emails(one), self.BRIEF))
         self.assert_refused(one.replace("Stripe lets", "If checkout is slow, Stripe lets"))
 
+    def test_each_email_names_a_different_problem(self):
+        """Seen live three runs in a row: email two said email one's "spend hours" problem again in other words."""
+        from leadpoet_plugin.writer import check_sequence
+        first = ("Hi,\n[[PERSONAL]]\nIf your reps spend hours researching before each first call, that is time away from buyers.\n"
+                 "Stripe lets you accept payments online [1].\nWorth a call?")
+        def emails(condition):
+            return {"emails": [{"subject": "payments", "body": first},
+                               {"subject": "payments", "body": f"{condition}\nStripe lets you accept payments online [1]. Who handles billing?"},
+                               {"subject": "payments", "body": "Stripe lets you accept payments online [1]. Open to a short call?"}]}
+        repeat = emails("If your reps lose hours researching before a buyer is ready to talk, that is selling time lost.")
+        emails_back, problem = check_sequence(repeat, self.BRIEF)
+        self.assertIsNone(emails_back)
+        self.assertIn("email 1's problem", problem)
+        self.assertTrue(check_sequence(repeat, self.BRIEF, safe_subjects=True)[0])  # Kept in hand rather than losing all three.
+        self.assertTrue(validate_sequence(emails("If checkout drags at the till, that is time away from buyers."), self.BRIEF))
+        self.assertTrue(validate_sequence(emails(""), self.BRIEF))
+
     def test_each_email_makes_a_different_claim(self):
         """Seen live: email three repeated email one's claim word for word. A short brief may reuse its one proof."""
         from leadpoet_plugin.writer import check_sequence
@@ -1368,6 +1385,11 @@ class EvidenceTests(unittest.TestCase):
         self.assertFalse(lines("10,000+ Sales Professionals", "Acme has 10,000+ sales professionals.", "https://acme.com/", "Acme"))
         # Seen live: the tile "5000+ Salespeople" counts Outplay's users, but became "Outplay has 5000+ Salespeople".
         self.assertFalse(lines("5000+ Salespeople", "Outplay has 5000+ Salespeople.", "https://outplay.ai/", "Outplay"))
+        # Seen live: a customer result tile became "Spendflo has an 80% reduction in approval times", said to Spendflo's CEO.
+        self.assertFalse(lines("80% reduction in approval times", "Spendflo has an 80% reduction in approval times.",
+                               "https://www.spendflo.com/", "Spendflo"))
+        self.assertFalse(lines("3x faster month-end close", "Rillet has 3x faster month-end close.", "https://www.rillet.com/", "Rillet"))
+        self.assertTrue(lines("15 global offices", "Assembled has 15 global offices.", "https://www.assembled.com/", "Assembled"))
         self.assertTrue(lines("45K+ users creating better buying moments", "Chili Piper has 45K+ users creating better buying moments.",
                               "https://chilipiper.com/", "Chili Piper"))
         self.assertFalse(lines("Default is already powering real-time alerts and data shaping",

@@ -155,6 +155,11 @@ def _opens_on_company(line: str, person: dict) -> bool:
 # A stat tile's meaning is in the label beside it: "5000+ Salespeople" counts Outplay's users, not its staff. A tile is a
 # number with a word or two, or a number with only capitalized words after it: "10,000+ Sales Professionals".
 _STAT_TILE = re.compile(r"\W*\S+(?:\s+\S+)?\W*$|\W*(?i:over\s+|more\s+than\s+)?[$€£]?\d[\d.,]*\S*(?:\s+[A-Z&][\w&'’-]*)+\W*$")
+# A result tile is what their customers get, not something they have: "80% reduction in approval times" became "Spendflo
+# has an 80% reduction in approval times", seen live. "40% of the Fortune 500" and "15 global offices" stay.
+_RESULT_TILE = re.compile(r"\W*(?:up\s+to\s+|over\s+|more\s+than\s+|nearly\s+|almost\s+)?\d[\d.,]*\s*(?:%|x\b|×|times\b|percent\b)\s*"
+                          r"(?:reduction|increase|decrease|faster|slower|more|less|fewer|lower|higher|savings?|saved|boost|"
+                          r"improvement|growth|lift|uplift|cut|drop|return|roi|better|quicker|cheaper)\b", re.IGNORECASE)
 # A tile like "Trusted & Loved by 10,000+ teams" takes is, never has: "Persana AI has Trusted & Loved by" was seen live.
 # A heading's capitals don't belong mid-sentence: "Trumpet is Trusted by 15,000+ revenue teams" and "Machina Labs is Born
 # from SpaceX" were seen live.
@@ -244,7 +249,7 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
         line, quote, url = _sentence(clean(entry.get("line"), 400)), clean(entry.get("quote"), 500), clean(entry.get("url"), 2000)
         line = _BADGE_CASE.sub(lambda badge: badge.group().lower(), line)
         # A stat tile's meaning is in the label beside it: "5000+ Salespeople" counts their users, not their staff.
-        good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _names_only(quote) and not _HAS_PASSIVE.search(line) and not _SELF_PRAISE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
+        good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _RESULT_TILE.match(quote) and not _names_only(quote) and not _HAS_PASSIVE.search(line) and not _SELF_PRAISE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
                 and not _NO_SUBJECT_OPENING.match(line)
                 and quote_is_on_page(scan, url, quote) and line_is_supported(line, quote, person)
                 and not _someone_else_speaks(quote, url, str(person.get("company") or ""), scan)
@@ -550,18 +555,32 @@ def _subject_problem(subject: str, brief: dict, quotes: str, where: str) -> str:
     return ""
 
 
+# Words any If sentence may share: who, how long and "by hand" say nothing about which problem it is.
+_CONDITION_FILLER = frozenset({"your", "reps", "team", "teams", "that", "this", "with", "from", "still", "each", "every", "before",
+                               "after", "many", "much", "most", "more", "spend", "spends", "spending", "lose", "loses", "losing",
+                               "take", "takes", "taking", "waste", "wastes", "wasting", "buyer", "buyers", "time", "they", "them",
+                               "their", "have", "does", "into", "over", "hand", "week", "weeks", "day", "days"})
+
+
+def _condition_words(sentence: str) -> set[str]:
+    """The words that say which problem an If sentence is about: hours, research, lists. Roughly stemmed."""
+    clause = _CITATION.sub("", sentence).split(",", 1)[0].lower()
+    return {re.sub(r"(?:ing|ed|es|s)$", "", word) for word in re.findall(r"[a-z]+", clause)
+            if len(word) > 3 and word not in _CONDITION_FILLER}
+
+
 def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -> tuple[list[dict] | None, str]:
     """Return three clean emails, or the first thing that's wrong so the model can fix it.
 
-    With safe_subjects, a subject that fails is swapped for a safe one, and a repeated proof is let through, instead of
-    losing the emails."""
+    With safe_subjects, a subject that fails is swapped for a safe one, and a repeated proof or problem is let through,
+    instead of losing the emails."""
     emails = raw.get("emails") if raw and isinstance(raw.get("emails"), list) else []
     if len(emails) != 3:
         return None, "Write exactly three emails, as JSON."
     quotes = " ".join(fact["quote"] for fact in brief["facts"])
     proof = numbers_in(quotes)
     proof_words = _words(quotes)
-    cleaned, used = [], []
+    cleaned, used, problems = [], [], []
     for index, email in enumerate(emails):
         if not isinstance(email, dict):
             return None, "Each email needs a subject and a body."
@@ -591,6 +610,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
             subject = SAFE_SUBJECT
         cited = asked = conditions = 0
         claims: list[str] = []
+        condition: set[str] = set()
         for line in body.splitlines():
             for sentence in re.split(r"(?<=[.!?])\s+", line.strip()):
                 if not sentence:
@@ -603,7 +623,9 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
                 cited += has_source
                 claims += [_CITATION.sub("", sentence).strip()] if has_source else []
                 asked += sentence.endswith("?")
-                conditions += bool(re.match(r"if\b", sentence, re.IGNORECASE)) and not sentence.endswith("?")
+                if re.match(r"if\b", sentence, re.IGNORECASE) and not sentence.endswith("?"):
+                    conditions += 1
+                    condition |= _condition_words(sentence)
         if conditions > 1:  # Seen live: "If your reps spend hours... If many of your contacts..." reads like a form.
             return None, f"{where} starts two sentences with If. Keep one."
         if not cited:
@@ -621,6 +643,12 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
         if (all(what_it_is.match(claim) for claim in claims) and len({fact["quote"] for fact in brief["facts"]}) >= 3
                 and not safe_subjects):
             return None, f"{where} only says what {brief['product_name']} is. Use a proof that says what it does."
+        # Seen live three runs in a row: "If your reps spend hours finding contacts" then "If your reps spend hours sourcing
+        # leads". The brief has one problem, and saying it twice in other words reads as the same pitch again.
+        again = next((spot for spot, before in enumerate(problems, 1) if before & condition), 0)
+        if again and not safe_subjects:
+            return None, f"{where} names email {again}'s problem again. Name a different problem, or leave out the If sentence."
+        problems.append(condition)
         used.append(cites)
         cleaned.append({"subject": subject, "body": _tidy(bare)})
     return cleaned, ""
