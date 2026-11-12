@@ -1769,15 +1769,23 @@ class SignalOpenerTests(unittest.TestCase):
                 ("Agrology", "https://agrology.ag", "Agrology launched a self-serve plan on Nov. 3, 2026 and is hiring its first SDR.",  # Run 28.
                  "Agrology launched a self-serve plan on Nov. 3, 2026 and is hiring its first SDR."),
                 ("Copper Labs", "https://www.copperlabs.com", "Copper Labs is hiring SDRs, per its careers page, to sell to electric co-ops.",
-                 "Copper Labs is hiring SDRs to sell to electric co-ops.")):
+                 "Copper Labs is hiring SDRs to sell to electric co-ops."),
+                ("CityDetect", "https://www.citydetect.com", "CityDetect's sales team grew 40% in H1 2026.",  # Run 29.
+                 "CityDetect's sales team grew 40% in H1 2026."),
+                ("Ashby", "https://www.ashbyhq.com", "Ashby's CEO said in October 2026 that the company will double its sales team.",
+                 "Ashby's CEO said in October 2026 that the company will double its sales team.")):
             why, lines = opener(company, site, note + tail, line)
             self.assertEqual(lines, [line], company)
             self.assertNotIn("&amp;", why)
-            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper")), why)
+            self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube", "Finally", "Mercoa", "Truewind", "Agrology", "Copper", "CityDetect", "Ashby")), why)
         # Run 28: the model's "has hired 2 AEs and 4 SDRs in Q3 2026" is not English; the note's own "hired" opens instead.
         _, lines = opener("Arable", "https://www.arable.com", "Arable hired 2 AEs and 4 SDRs in Q3 2026." + tail,
                           "Arable has hired 2 AEs and 4 SDRs in Q3 2026.")
         self.assertEqual(lines, ["Arable hired 2 AEs and 4 SDRs in Q3 2026."])
+        # A possessive is theirs, so it still says which company the news is about, and still never reaches the one it names.
+        self.assertEqual(signal_opener(SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps(
+            {"line": "Ashby's CEO said the company will double its sales team."}))), {"company": "Ashby", "role": "CEO",
+            "why": "Ashby's CEO said the company will double its sales team."})[0], [])
         _, lines = opener("Abound", "https://www.getabound.com", "Abound doubled its SDR team in H1 2026 and plans ~40 more hires." + tail,
                           "Abound doubled its SDR team in H1 2026 and plans ~40 more hires.")
         self.assertEqual(lines, [])  # A plan to hire is still a guess.
@@ -2412,6 +2420,19 @@ class BreadthFindingsCase(unittest.TestCase):
         scan = Scan("lithic.com", [Page("https://www.lithic.com/", "t", quote)])
         self.assertEqual(len(validate_lines({"lines": [{"line": quote + ".", "quote": quote, "url": "https://www.lithic.com/"}]},
                                             scan, {"company": "Lithic"})[0]), 1)
+
+    def test_a_heading_copied_into_a_line_is_no_line(self):
+        """Seen live, run 29: "Openly has Home Insurance in 24 States and Growing." kept the heading's capitals."""
+        quote = "Home Insurance in 24 States and Growing"
+        text = f"{quote} Openly sells home insurance through independent agents in 24 states."
+        scan = Scan("openly.com", [Page("https://openly.com/", "t", text)])
+        raw = {"lines": [{"line": f"Openly has {quote}.", "quote": quote, "url": "https://openly.com/"}]}
+        self.assertEqual(validate_lines(raw, scan, {"company": "Openly"}), ([], 1))
+        # Names keep their capitals even beside a link to them.
+        quote = "Openly sells through Allstate and Travelers"
+        scan = Scan("openly.com", [Page("https://openly.com/", "t", f"{quote}. See allstate.com and travelers.com.")])
+        self.assertEqual(len(validate_lines({"lines": [{"line": quote + ".", "quote": quote, "url": "https://openly.com/"}]},
+                                            scan, {"company": "Openly"})[0]), 1)
 
     def test_your_own_words_keep_your_company_name(self):
         scan = Scan("your-company", [Page("https://a/", "", self.QUOTE + " Pinecrest Freight runs it.")])

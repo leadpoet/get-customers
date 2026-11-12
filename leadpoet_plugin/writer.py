@@ -268,6 +268,15 @@ def _names_only(quote: str) -> bool:
             and all(word[:1].isupper() or word[:1].isdigit() for word in words))
 
 
+def _heading_case(line: str, company: str, scan: Scan) -> bool:
+    """A heading copied into a sentence keeps its capitals: "Openly has Home Insurance in 24 States and Growing", seen
+    live in run 29. A capital is a heading's, not a name's, when their own pages also write that word in lowercase."""
+    own = set(_tokens(company))
+    capitals = {word.lower() for word in re.findall(r"(?<=\s)[A-Z][a-z]+\b", line) if word.lower() not in own and word.lower() not in GLUE}
+    pages = " ".join(page.text for page in scan.pages)
+    return len([word for word in capitals if re.search(rf"(?<![\w./@-]){word}(?![\w-]|\.[a-z])", pages)]) >= 2
+
+
 def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dict], int]:
     """Return the lines that passed and how many were thrown out."""
     entries = raw.get("lines") if raw and isinstance(raw.get("lines"), list) else []
@@ -282,6 +291,7 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
         # A stat tile's meaning is in the label beside it: "5000+ Salespeople" counts their users, not their staff.
         good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _RESULT_TILE.match(quote) and not _names_only(quote) and not _quote_names_another(quote, str(person.get("company") or "")) and not _HAS_PASSIVE.search(line) and not _SELF_PRAISE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
                 and not _NO_SUBJECT_OPENING.match(line) and not _DANGLING.search(line)
+                and not _heading_case(line, str(person.get("company") or ""), scan)
                 and quote_is_on_page(scan, url, quote) and line_is_supported(line, quote, person)
                 and not _someone_else_speaks(quote, url, str(person.get("company") or ""), scan)
                 and all(other["quote"] != quote for other in kept))
@@ -368,12 +378,25 @@ def _tokens(text: str) -> list[str]:
     return re.findall(r"[a-z0-9$%]+(?:['’][a-z]+)?", text.lower().replace("’", "'"))
 
 
+# "Ramp's competitor Beta raised" is Beta's news, so a possessive opens only on a part of them.
+_OWN_PARTS = frozenset({"sales", "team", "teams", "sdr", "sdrs", "ae", "aes", "bdr", "bdrs", "outbound", "gtm", "revenue", "arr", "headcount",
+                        "workforce", "valuation", "ceo", "cro", "cfo", "coo", "cto", "cmo", "founder", "founders", "cofounder", "board"})
+
+
+def _own_possessive(words: list[str], name: list[str]) -> list[str]:
+    """ "CityDetect's sales team grew" opens on their name too. Seen live, run 29: two of ten notes lost their line."""
+    end = len(name)
+    if name and words[:end - 1] == name[:-1] and len(words) > end and words[end - 1] == f"{name[-1]}'s" and words[end] in _OWN_PARTS:
+        return [*name, "'s", *words[end:]]
+    return words
+
+
 def restates_note(line: str, note: str, company: str) -> bool:
     """The line is the company's name, at most one small verb, then the whole note, word for word.
 
     Dropping words could hand another company's news to this one, so nothing may be left out."""
     name = _tokens(company)
-    said, source = _tokens(line), _tokens(note)
+    said, source = _own_possessive(_tokens(line), name), _own_possessive(_tokens(note), name)
     if not name or said[:len(name)] != name:
         return False
     rest = said[len(name):]
@@ -398,6 +421,8 @@ def _name_in_note(text: str, company: str) -> str | None:
     used = 0
     while used < len(name) and start + used < len(words) and words[start + used] == name[used]:
         used += 1
+    if used == len(name) - 1 and start + used + 1 < len(words) and words[start + used] == f"{name[-1]}'s" and words[start + used + 1] in _OWN_PARTS:
+        return text[:found[start + used].end() - 2]  # "Ashby's CEO said": what follows is theirs.
     if not used:
         return ""
     if any(word not in _NAME_SUFFIXES for word in name[used:]):
