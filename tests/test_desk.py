@@ -555,6 +555,14 @@ class PluginCase(unittest.TestCase):
         sender = plugin.customers().api.profile()["profile"]["voice"]["sender_name"]
         self.assertNotIn("Sunnyday", sender)
 
+    def test_buyer_is_a_command_not_a_site_to_read(self):
+        plugin = self.make()
+        with mock.patch.object(self.entry, "get_key", return_value=""):
+            text = plugin.customers_command("buyer banks in the US", platform="telegram", source=self.dm())
+        self.assertIn("Start with /customers yoursite.com", text)
+        plugin.command("demo", platform="telegram", source=self.dm())
+        self.assertIn("The demo keeps the buyer", plugin.customers_command("Buyer banks in the US", platform="telegram", source=self.dm()))
+
     def test_demo_on_your_own_site_has_prospects_that_fit_your_search(self):
         from leadpoet_plugin.brief import signals_text
         from leadpoet_plugin.customers import account_note

@@ -42,6 +42,8 @@ SCOPE_NAMES = {"lead_engine:read": "Read Lead engine", "lead_engine:write": "Man
 SCOPES = tuple(SCOPE_NAMES)
 OWN_WORDS = "your own description"
 MAX_OWN_WORDS = 6000
+MAX_BUYER_NOTE = 300
+_OTHER_BUYER = "Selling to someone else? Say who: /customers buyer <who buys>"
 MAX_SIGNATURE_CHARS = 1000
 _PASTE_INSTEAD = "No problem. Paste a few sentences about what you sell: /customers about <your text>"
 _LOCK = "customers"
@@ -67,6 +69,7 @@ _CAMPAIGN_SEED = {
 _STYLE = {"phrase_allowlist": [], "phrase_denylist": [], "positive_style_examples": [], "negative_style_examples": []}
 HELP = """/customers yoursite.com: find your customers
 /customers about <what you sell>: start from your own words
+/customers buyer <who buys>: change the buyer on your card
 /customers: see the next step
 /customers voice <a few lines you wrote>: match your writing
 /customers list: see everyone, and your other searches
@@ -286,6 +289,8 @@ class Customers:
             return self._voice(argument)
         if action == "about":
             return self._about(argument)
+        if action == "buyer":
+            return self._buyer(argument)
         job = self.job()
         if action in ("go", "use", "approve", "all"):
             argument = argument.strip().lower()  # Phones capitalise the first letter.
@@ -350,12 +355,32 @@ class Customers:
         if running:
             return running
         try:
-            self._progress(f"Reading {page if len(page) <= 60 else host}: working out who buys from you, who makes the call, "
+            shown = page if len(page) <= 60 else host
+            self._progress(f"Reading {shown} again with that buyer in mind. About 30 seconds." if note else
+                           f"Reading {shown}: working out who buys from you, who makes the call, "
                            "the buying signals that say now is the time, and the quotes that prove each claim. About 30 seconds.")
             scan = scan_site(url, fetcher=self.fetcher) if self.fetcher else scan_site(url)
         except SiteError as error:
             return f"{error.args[0]}\n\n{_PASTE_INSTEAD}"
-        return self._start_from(scan, url, job, "Try a page that says what you sell: /customers yoursite.com/product")
+        return self._start_from(scan, url, job, "Try a page that says what you sell: /customers yoursite.com/product", note)
+
+    def _buyer(self, who: str) -> str:
+        """The card can name a buyer the founder doesn't sell to. They say who does buy, and the site is read again."""
+        job = self.job()
+        who = " ".join(who.split())[:MAX_BUYER_NOTE]
+        if getattr(self.api, "demo", False):
+            return "The demo keeps the buyer on its card. On your own search, /customers buyer <who buys> changes it."
+        if not job or job["stage"] in ("done", "failed", "live"):
+            return "Start with /customers yoursite.com. If the card names the wrong buyer, say who buys then."
+        if job["stage"] not in ("scanned", "needs_key") or job.get("find_body"):
+            return ("This search is already on its way with the buyer on its card.\n"
+                    "To change who buys, drop it and start again: /customers reset")
+        if not job.get("typed") or (job.get("brief") or {}).get("domain") == "your-company":
+            return "Add who buys to your description and send it again: /customers about <your text>"
+        if len(who.split()) < 2:
+            return "Say who buys from you, in a few words: /customers buyer <who buys>"
+        # Nothing has been asked of Leadpoet yet, so the new card takes this one's place.
+        return self.start(job.get("source") or job["typed"], {**job, "stage": "scanned"}, who)
 
     def _about(self, text: str) -> str:
         """Some sites turn readers away. The founder's own words are as good a source as their website."""
@@ -381,8 +406,8 @@ class Customers:
                 return f"{host} is already under way. Open it: /customers open {host}"
         return ""
 
-    def _start_from(self, scan: Scan, source: str, job: dict | None, tip: str) -> str:
-        brief = briefs.write_brief(self.llm, scan)
+    def _start_from(self, scan: Scan, source: str, job: dict | None, tip: str, note: str = "") -> str:
+        brief = briefs.write_brief(self.llm, scan, note)
         if brief and brief.get("consumer"):
             return (f"{brief['product_name']} sells to consumers, so there are no companies to find for it.\n"
                     "If companies buy from you too, say what you sell: /customers about <your text>\n"
@@ -392,6 +417,8 @@ class Customers:
         created = {"id": code_for(source, str(self.now()))[:4] + hashlib.sha256(source.encode()).hexdigest()[:8],
                    "stage": "scanned", "brief": brief, "people": [], "emails": None, "voice_sample": "",
                    "created_at": self.now(), "typed": re.sub(r"^https?://(www\.)?", "", source).split("/")[0].lower()}
+        if scan.domain != "your-company":
+            created["source"] = source  # The page they sent, so it can be read again.
         if job and job["stage"] not in _SETTLED:
             self._park(job)
             # A search still waiting on a key or credits has not started, so nothing is running yet.
@@ -1107,7 +1134,8 @@ class Customers:
     def _stage_text(self, job: dict) -> str:
         stage = job["stage"]
         if stage == "scanned":
-            return (briefs.card(job["brief"]) + "\n\n" + self._offer(job))
+            fix = "" if getattr(self.api, "demo", False) or job["brief"].get("domain") == "your-company" else _OTHER_BUYER + "\n\n"
+            return briefs.card(job["brief"]) + "\n\n" + fix + self._offer(job)
         if stage == "needs_key" and self.api is not None:
             try:  # Say so now if the new key won't work, rather than after they confirm.
                 problem = self._key_problem(job)

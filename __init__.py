@@ -248,7 +248,7 @@ class Plugin:
             return json.dumps({"error": "The draft couldn't be saved."})
 
 
-_CUSTOMER_ACTIONS = {"go", "open", "write", "approve", "use", "all", "skip", "list", "check", "status", "voice", "about", "reset"}
+_CUSTOMER_ACTIONS = {"go", "open", "write", "approve", "use", "all", "skip", "list", "check", "status", "voice", "about", "buyer", "reset"}
 
 
 def _watch_setup(parser: Any) -> None:

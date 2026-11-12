@@ -19,7 +19,7 @@ MARKDOWN_PLATFORMS = {"signal", "telegram", "whatsapp", "whatsapp_cloud", "disco
 MARKDOWN = ("**", "**", "`", "`")
 ANSI = ("\033[1m", "\033[22m", "\033[36m", "\033[39m")
 
-_ACTIONS = ("go|open|write|approve|use|all|skip|list|check|voice|about|reset|demo|help|"
+_ACTIONS = ("go|open|write|approve|use|all|skip|list|check|voice|about|buyer|reset|demo|help|"
             "send|edit|redraft|status")
 _ARGUMENT = r"(?:[0-9a-f]{4}\b|<[^>\n]+>|off\b|confirm\b|[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/[^\s`]*)?)"
 _START = r"(?<![^\s(])"  # A command starts a line or follows a space, so the same letters inside a web address aren't one.

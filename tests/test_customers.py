@@ -2026,3 +2026,81 @@ class RequestPathFindingsCase(unittest.TestCase):
         self.assertEqual(kept[0], "Start sending emails in minutes")
         small = validate_brief(self.raw(product_name="sweetgreen", facts=facts[1:]), Scan("sweetgreen.com", scan.pages))
         self.assertEqual(small["facts"][0]["text"], "sweetgreen serves warm bowls and plates every day")
+
+
+class BuyerCorrectionCase(Case):
+    """Insight Global's card named contact-center operators, one corner of a general staffing firm, with no way to say so (Nov 11)."""
+
+    WHO = "IT directors at US banks hiring contract engineers"
+
+    def setUp(self):
+        seen = self.seen = []
+
+        class Llm(DemoLlm):
+            def complete(self, messages, **kwargs):
+                result = super().complete(messages, **kwargs)
+                said = messages[-1]["content"]
+                seen.append((str(kwargs.get("purpose")), said))
+                if "The founder adds: " not in said or not str(kwargs.get("purpose")).endswith(("brief", "brief check")):
+                    return result
+                raw = json.loads(result.text)
+                raw["buyer_description"] = "US banks that staff engineering projects with contract engineers"
+                return SimpleNamespace(text=json.dumps(raw))
+
+        super().setUp()
+        self.customers = Customers(self.api, self.store, Llm(), demo_fetch)
+
+    def test_the_card_says_how_to_name_another_buyer(self):
+        self.assertIn("Selling to someone else? Say who: /customers buyer <who buys>\n\nNext, find", self.text)
+        self.assertIn("/customers buyer <who buys>: change the buyer on your card", self.customers.handle("help", ""))
+
+    def test_saying_who_buys_reads_the_site_again_for_that_buyer(self):
+        old = self.code("go")
+        text = self.customers.handle("buyer", f"  {self.WHO}  ")
+        self.assertIn("Who buys: US banks that staff engineering", text)
+        told = [said for purpose, said in self.seen if purpose.endswith(("brief", "brief check"))]
+        self.assertTrue(told and all(f"</website>\n\nThe founder adds: {self.WHO}" in said for said in told), told)  # Both the writer and its editor.
+        job = self.customers.job()
+        self.assertEqual((job["stage"], job["source"]), ("scanned", SELLER + "/"))
+        self.assertEqual(self.customers._parked(), [])  # It takes the old card's place, not a place beside it.
+        self.assertIn("isn't the one", self.customers.handle("go", old))  # The old card's code spends nothing.
+        self.assertFalse(self.api.requests)
+
+    def test_it_works_until_leadpoet_has_been_asked(self):
+        self.customers = Customers(None, self.store, self.customers.llm, demo_fetch)
+        self.assertIn("free Leadpoet account", self.customers.handle("go", self.code("go")))
+        self.assertEqual(self.customers.job()["stage"], "needs_key")
+        self.assertIn("US banks that staff engineering", self.customers.handle("buyer", self.WHO))
+        self.assertEqual(self.customers.job()["stage"], "scanned")
+
+    def test_a_search_under_way_keeps_its_buyer(self):
+        self.customers.handle("go", self.code("go"))
+        before = self.customers.job()
+        text = self.customers.handle("buyer", self.WHO)
+        self.assertIn("already on its way", text)
+        self.assertIn("/customers reset", text)
+        self.assertEqual(self.customers.job(), before)
+        self.assertEqual(len(self.api.requests), 1)
+
+    def test_too_little_to_go_on_asks_for_more_and_reads_nothing(self):
+        calls = len(self.seen)
+        for said in ("", "banks"):
+            self.assertIn("Say who buys from you", self.customers.handle("buyer", said))
+        self.assertEqual(len(self.seen), calls)
+        self.customers.handle("reset", "")
+        self.assertIn("Start with /customers yoursite.com", self.customers.handle("buyer", self.WHO))
+
+    def test_a_search_from_pasted_words_is_told_to_add_the_buyer_there(self):
+        job = self.customers.job()
+        job["brief"]["domain"] = "your-company"
+        self.customers.save({key: value for key, value in job.items() if key != "source"})
+        card = self.customers.handle("", "")
+        self.assertIn("/customers go ", card)
+        self.assertNotIn("/customers buyer", card)
+        self.assertIn("/customers about <your text>", self.customers.handle("buyer", self.WHO))
+
+    def test_the_demo_keeps_its_card(self):
+        demo = Customers(DemoCustomersApi(), Store(Path(self.tmp.name) / "d.db"), DemoLlm(), demo_fetch)
+        self.assertNotIn("/customers buyer", demo.start(SELLER))
+        self.assertIn("The demo keeps the buyer", demo.handle("buyer", self.WHO))
+

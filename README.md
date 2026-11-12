@@ -74,6 +74,7 @@ It prints one `hermes cron create` line to run. The check uses no model, so it c
 | --- | --- |
 | `/customers yoursite.com` | Start a search. One already finding keeps running |
 | `/customers` | Show the next step |
+| `/customers buyer <who buys>` | Change the buyer on your card, before anything is spent |
 | `/customers voice <text>` | Match a few lines you really wrote |
 | `/customers list` | See everyone, and your other searches |
 | `/customers open <site>` | Switch to another search |
@@ -105,6 +106,7 @@ It prints one `hermes cron create` line to run. The check uses no model, so it c
 
 ## Good to know
 
+- If the card names a buyer you don't sell to, `/customers buyer <who buys>` reads the site again for that buyer. Your words set the buyer, the roles and the signals. Every fact still has to be on your site.
 - The brief names one kind of buyer, the roles that decide, and 3 to 5 buying signals, at most one from each place a researcher can check: job postings, funding and news, technology, the company's own site, and community or review sites. Each has a time window, such as a role posted in the past 30 days. Guesses like "is evaluating tools" are thrown out.
 - Finding contacts usually takes 1 to 2 days. Each company is checked against your profile and its buying signal, and every contact is verified. Hermes messages you when they land, with Leadpoet's note on why each company fits.
 - A search is 10 companies, the smallest Leadpoet runs, which is exactly what the free credits buy.
