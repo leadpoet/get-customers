@@ -1733,6 +1733,14 @@ class SignalOpenerTests(unittest.TestCase):
                          ([{"line": "Dover grew its sales team by 40% this quarter and is hiring two more SDRs.",
                             "quote": "Dover grew its sales team by 40% this quarter and is hiring two more SDRs.", "url": ""}], 0))
         self.assertEqual(self.line("", why=why, company="Dover"), ([], 0))
+        # Run 21: the opener for Tabs (a "Series B." note) and Finch (an en dash range) was refused.
+        why = "Tabs is hiring SDRs after a $55M Series B." + tail
+        self.assertEqual(self.line("Tabs is hiring SDRs after a $55M Series B.", why=why, company="Tabs")[0][0]["line"],
+                         "Tabs is hiring SDRs after a $55M Series B.")
+        why = "Finch is hiring SDRs who have sold to controllers at companies with $50M–$500M in revenue." + tail
+        self.assertEqual(self.line("Finch is hiring SDRs who have sold to controllers at companies with $50M–$500M in revenue.",
+                                   why=why, company="Finch")[0][0]["line"],
+                         "Finch is hiring SDRs who have sold to controllers at companies with $50M to $500M in revenue.")
         # Planning to do something is still a guess, and a different word after their name is someone else.
         self.assertEqual(opener("Acme", "https://acme.com", "Acme is planning to open a Denver office.", "Acme is planning to open a Denver office.")[1], [])
         self.assertEqual(opener("Arch Systems", "https://archsys.io", "Arch Capital hired a VP of Sales.", "Arch Capital hired a VP of Sales.")[1], [])
@@ -1886,6 +1894,10 @@ class SignalOpenerTests(unittest.TestCase):
         # Seen live: "Mutiny named Priya Shah Head of Sales on Oct." went out as the whole line.
         self.assertEqual(lead_sentence("Acme named a CRO on Oct. 6, 2026, and is hiring. More."), "Acme named a CRO on Oct. 6, 2026, and is hiring.")
         self.assertEqual(lead_sentence("Acme hired a CRO in Oct. The team grew."), "Acme hired a CRO in Oct.")
+        # Run 21: "Series B." ended the event; the disclaimer after it was shown as why the company fits.
+        self.assertEqual(lead_sentence("Tabs is hiring SDRs after a $55M Series B. The evidence confirms the round."),
+                         "Tabs is hiring SDRs after a $55M Series B.")
+        self.assertEqual(lead_sentence("Acme closed its Series A in May. More."), "Acme closed its Series A in May.")
         self.assertTrue(short_note("word " * 80).endswith("…"))
         self.assertLessEqual(len(short_note("word " * 80)), 221)
         # Seen live: a long note was cut to "...write their own cold emails and…".

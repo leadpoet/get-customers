@@ -336,7 +336,10 @@ def lead_sentence(note: str) -> str:
     for stop in re.finditer(r"[.!?](?=\s+[A-Z0-9\"“'(])", text):
         word = re.findall(r"[\w.]+$", text[:stop.start()])
         token = word[0].lower() if word else ""
-        if token in _ABBREVIATIONS or len(token) == 1:  # "Acme Inc. hired" and "J. Smith" go on.
+        if token in _ABBREVIATIONS:  # "Acme Inc. hired" goes on.
+            continue
+        # "J. Smith" goes on; "Series B." ends the sentence (seen live, run 21: the closing disclaimer was shown as the reason).
+        if len(token) == 1 and not re.search(r"\b(?:series|round|class|phase|tier|type|plan|grade|stage)\s+\w$", text[:stop.start()], re.IGNORECASE):
             continue
         if token in _MONTHS and re.match(r"\s+\d", text[stop.end():]):  # Seen live: "Head of Sales on Oct." was a whole line.
             continue
@@ -467,7 +470,8 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
 
     Only the note's first sentence, the event itself, can open: the rest explains the fit, and a closing "it does not
     show they are evaluating us" is not doubt about the event. Doubt about the evidence anywhere still means no line."""
-    note = re.sub(r"\s+[—–]\s+", ", ", tidy_note(person.get("why"), str(person.get("company") or "")))  # Seen live: "hired a VP of Sales — its first — and" could not be restated.
+    note = re.sub(r"\s+[—–]\s+", ", ", tidy_note(person.get("why"), str(person.get("company") or "")))
+    note = re.sub(r"(?<=[\w%])[–—](?=[$€£]?\d)", " to ", note)  # Seen live, run 21: "$50M–$500M" opened no email, which allows no dash.  # Seen live: "hired a VP of Sales — its first — and" could not be restated.
     # Seen live: "is hiring SDRs; its job post asks" came back as "SDRs, and its job post asks", which no longer matched.
     note = re.sub(r";\s+", ", ", re.sub(r";\s+(?!(?:and|but|so|yet|or)\b)", ", and ", note))
     signal = _sentence(_INFERENCE.split(_LEADING_WHEN.sub("", lead_sentence(note), count=1), 1)[0].rstrip(" ,;"))
