@@ -330,9 +330,18 @@ class FindCase(Case):
         self.assertIn("6 verified contacts at 3 companies are in.", text)
         self.assertIn("the other 3 are in your Leadpoet pipeline", text)
         self.assertIn("https://leadpoet.com/dashboard/pipeline", text)
-        self.assertEqual([person["name"] for person in self.customers.job()["people"]], ["Marcus Oyelaran", "Priya Raman", "Sam Office"])
+        # No listed role fits Tallgrass, so the senior title wins: an Operations Director over an Office Manager.
+        self.assertEqual([person["name"] for person in self.customers.job()["people"]], ["Marcus Oyelaran", "Priya Raman", "Lena Fischer"])
         self.assertIn("• Pinecrest Freight: Posted a night dispatcher role on Oct 28 that asks for clean shift handovers.\n", text)
         self.assertNotIn("three depots", text)  # The phone shows the event, not the whole note.
+
+    def test_with_no_listed_role_the_senior_title_is_written_to(self):
+        """Seen live: "Sales Development Representative" arrived first and was chosen over the Director of Sales."""
+        from leadpoet_plugin.customers import _seniority
+        ranked = sorted(["Sales Development Representative", "Account Executive", "Director of Sales", "Sales Manager",
+                         "Head of Sales", "Vice President of Sales", "Chief Revenue Officer"], key=lambda role: _seniority(role.lower()))
+        self.assertEqual(ranked, ["Chief Revenue Officer", "Vice President of Sales", "Head of Sales", "Director of Sales",
+                                  "Sales Manager", "Sales Development Representative", "Account Executive"])
 
     def test_another_workspaces_contacts_are_ignored(self):
         self.customers.handle("go", self.code("go"))

@@ -195,6 +195,17 @@ def account_note(note: object, *requests: dict | None) -> str:
 _NOTE_SOURCE = "Source: Leadpoet's research on why they fit"
 
 
+# When no listed buyer matches, the senior title decides. Seen live: an SDR listed first beat the Director of Sales.
+_LADDER = (r"\b(?:vp|svp|evp|vice president)\b", r"\b(?:chief|c[erom]o|founder|co-founder|owner|president)\b",
+           r"\bhead\b", r"\bdirector\b", r"\b(?:manager|lead)\b")
+
+
+def _seniority(role: str) -> int:
+    """0 is most senior. A VP is checked first so "Vice President" isn't read as President."""
+    found = next((step for step, pattern in enumerate(_LADDER) if re.search(pattern, role)), len(_LADDER))
+    return {0: 1, 1: 0}.get(found, found)
+
+
 def _from_note(person: dict) -> bool:
     """The personal line restates Leadpoet's note, so printing the note too would say it twice."""
     return any(not entry.get("url") for entry in person.get("lines") or [])
@@ -655,9 +666,10 @@ class Customers:
         rows, best, people = self.api.pipeline_contacts(job.get("icp_id")), {}, []
         buyers = [_squash(role).lower() for role in job["brief"].get("buyers") or [] if _squash(role)]
 
-        def rank(row: dict) -> int:
+        def rank(row: dict) -> tuple[int, int]:
             role = _squash(str(row.get("role") or "")).lower()
-            return next((index for index, buyer in enumerate(buyers) if buyer == role or buyer in role), len(buyers))
+            listed = next((index for index, buyer in enumerate(buyers) if buyer == role or buyer in role), len(buyers))
+            return listed, _seniority(role)
 
         found: dict[str, int] = {}
         for row in rows:
