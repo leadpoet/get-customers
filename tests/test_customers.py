@@ -1259,6 +1259,19 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(lines("We have implemented an AI trust framework", "Salesflare has implemented an AI trust framework.",
                               "https://salesflare.com/about-us"))
         self.assertTrue(lines("Trusted by 3,000+ businesses", "Salesflare is trusted by 3,000+ businesses."))
+        # Seen live on outplay.ai/pricing: a customer's headline became "Outplay's outbound success rate increased by 30%".
+        pricing = ("the response rate was within a few minutes no matter what time I reached out.\nAsh D\nBusiness Development Manager\n"
+                   "Our outbound success rate increased by 30% in the last quarter alone.\n“Outplay has completely changed the game for me.")
+        scan = Scan("outplay.ai", [Page("https://outplay.ai/pricing", "t", pricing)])
+        self.assertFalse(validate_lines({"lines": [{"line": "Outplay's outbound success rate increased by 30% in the last quarter alone.",
+                                                    "quote": "Our outbound success rate increased by 30% in the last quarter alone.",
+                                                    "url": "https://outplay.ai/pricing"}]}, scan, {"company": "Outplay"})[0])
+        home = ("Simplify your day-to-day with free tools from Jobber. Learn more\nJobber Grants\nOur $150,000 grant program recognizes "
+                "excellence in home service. We want to recognize home service professionals' accomplishments.\nJobber Events")
+        scan = Scan("getjobber.com", [Page("https://www.getjobber.com", "t", home)])
+        self.assertTrue(validate_lines({"lines": [{"line": "Jobber's $150,000 grant program recognizes excellence in home service.",
+                                                   "quote": "Our $150,000 grant program recognizes excellence in home service",
+                                                   "url": "https://www.getjobber.com"}]}, scan, {"company": "Jobber"})[0])
         # Seen live: two lines to Default's VP came from case studies about People Data Labs and Cortex.
         story = "https://www.default.com/case-study/how-people-data-labs-used-default"
         self.assertFalse(lines("Default replaced a clunky LeanData + Marketo + Salesforce setup",

@@ -55,7 +55,9 @@ _LINE_SYSTEM = (
     "website. Reply with one JSON object and nothing else: "
     '{"lines": [{"line": "...", "quote": "...", "url": "..."}]}. '
     '"line" is one short plain sentence, under 200 characters, stating a concrete fact about this company: a customer, '
-    'launch, place, program or number. Never use a tagline, a slogan, a command, a feature list, a price or plan, a founding date, a head office or a license. No colons. '
+    'launch, place, program or number. Never use a tagline, a slogan, a command, a price or plan, a founding date, a head office or a license. '
+    'Never describe what the product does or has, such as its features, integrations, specs or how it compares with other products: '
+    'they know their own product. Who uses it, what it has achieved, and where the company is growing are what to look for. No colons. '
     'Start it with the company name or the word Your, because it may appear with no sentence before it. "quote" is the exact words from the page that prove it, copied character for character. '
     '"url" is that page\'s address. Use only the quote\'s own words, in the same order, plus the company name. '
     'Put the company name where the quote says We or Our, or in front of the quote with is or has. Never add says, reports, announced, recently, customer or titled. '
@@ -150,7 +152,23 @@ def _opens_on_company(line: str, person: dict) -> bool:
 _STORY_PAGE = re.compile(r"/(?:customers?|case-stud|testimonials?|reviews?|stories|success)", re.IGNORECASE)
 
 
-def _someone_else_speaks(quote: str, url: str, company: str) -> bool:
+# A customer's quote sits beside their name and title: "Ash D / Business Development Manager", "Miguel Delgado, Sales Manager".
+_BYLINE = re.compile(r"\b(?:CEO|CTO|CFO|COO|CMO|CRO|VP|Founder|Co-[Ff]ounder|Owner|President|Director|Manager|Head of|Officer)\b")
+
+
+def _beside_a_byline(scan: Scan | None, url: str, quote: str) -> bool:
+    words = quote.split()
+    for page in (scan.pages if scan and words else []):
+        if page.url != url:
+            continue
+        for found in re.finditer(r"\s+".join(map(re.escape, words)), page.text, re.IGNORECASE):
+            near = page.text[max(0, found.start() - 250):found.start()] + "\n" + page.text[found.end():found.end() + 250]
+            if "\u201c" in near or any(len(line.strip()) <= 80 and _BYLINE.search(line) for line in near.splitlines()):
+                return True
+    return False
+
+
+def _someone_else_speaks(quote: str, url: str, company: str, scan: Scan | None = None) -> bool:
     """A quote that names the company after its first words is about them from outside: "Remote switched to Linear",
     "Our revenue went x6 thanks to Salesflare". So is a first-person quote on a customer story page. Neither is theirs."""
     name = re.sub(r"(?<=\w)\.(?=\w)", "", company).lower()
@@ -161,8 +179,8 @@ def _someone_else_speaks(quote: str, url: str, company: str) -> bool:
         if any(found.start() != allowed for found in re.finditer(rf"(?<![\w-]){re.escape(name)}(?![\w-])", text)):  # "Pilot-prepared" is theirs.
             return True
     path = re.sub(r"^https?://[^/]+", "", url or "")
-    if not _STORY_PAGE.search(path):
-        return False
+    if not _STORY_PAGE.search(path):  # Seen live: "Our outbound success rate increased by 30%" was a customer's, on /pricing.
+        return bool(_FIRST_PERSON.search(quote)) and _beside_a_byline(scan, url, quote)
     # A story page is about their customer: "Default replaced a clunky LeanData + Marketo setup" happened at People Data
     # Labs, and "between Cortex's existing systems" is Cortex's stack. Said to them alone, it reads as their own.
     own = set(re.findall(r"[a-z0-9]+", name))
@@ -184,7 +202,7 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
         good = (line and len(line) <= MAX_LINE_CHARS and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
                 and not _NO_SUBJECT_OPENING.match(line)
                 and quote_is_on_page(scan, url, quote) and line_is_supported(line, quote, person)
-                and not _someone_else_speaks(quote, url, str(person.get("company") or ""))
+                and not _someone_else_speaks(quote, url, str(person.get("company") or ""), scan)
                 and all(other["quote"] != quote for other in kept))
         if good and len(kept) < MAX_LINES:
             kept.append({"line": line, "quote": quote, "url": url})
