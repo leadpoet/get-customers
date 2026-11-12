@@ -1390,6 +1390,15 @@ class EvidenceTests(unittest.TestCase):
                                "https://www.spendflo.com/", "Spendflo"))
         self.assertFalse(lines("3x faster month-end close", "Rillet has 3x faster month-end close.", "https://www.rillet.com/", "Rillet"))
         self.assertTrue(lines("15 global offices", "Assembled has 15 global offices.", "https://www.assembled.com/", "Assembled"))
+        # Seen live: Spendflo's product "Flo" became Spendflo: "Spendflo is live in 14 days."
+        self.assertFalse(lines("Flo is live in 14 days.", "Spendflo is live in 14 days.", "https://www.spendflo.com/", "Spendflo"))
+        self.assertFalse(lines("Jane Doe has joined as Chief Revenue Officer", "Acme has joined as Chief Revenue Officer.",
+                               "https://acme.com/", "Acme"))
+        for quote, line, company in (("Uptake has joined Bosch to scale fleet maintenance", "Uptake has joined Bosch to scale fleet maintenance.", "Uptake"),
+                                     ("Cal.com is open source scheduling", "Cal.com is open source scheduling.", "Cal.com"),
+                                     ("Rillet has arrived in the UK", "Rillet has arrived in the UK.", "Rillet"),
+                                     ("It is live in 14 days", "Acme is live in 14 days.", "Acme")):
+            self.assertTrue(lines(quote, line, f"https://{company.lower()}/", company), quote)
         self.assertTrue(lines("45K+ users creating better buying moments", "Chili Piper has 45K+ users creating better buying moments.",
                               "https://chilipiper.com/", "Chili Piper"))
         self.assertFalse(lines("Default is already powering real-time alerts and data shaping",
