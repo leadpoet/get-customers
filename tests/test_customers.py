@@ -1236,8 +1236,8 @@ class EvidenceTests(unittest.TestCase):
                                                       ("Accept payments online", "Send invoices in minutes", "Pay out in 40 countries")]}
         def emails(third):
             return {"emails": [{"subject": "payments", "body": "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?"},
-                               {"subject": "payments", "body": "Stripe lets you send invoices in minutes [2]. Who handles billing?"},
-                               {"subject": "payments", "body": f"{third} Open to a short call?"}]}
+                               {"subject": "Question for {company}", "body": "Stripe lets you send invoices in minutes [2]. Who handles billing?"},
+                               {"subject": "Question for {company}", "body": f"{third} Open to a short call?"}]}
         self.assertTrue(validate_sequence(emails("Stripe lets you pay out in 40 countries [3]."), brief))
         repeat = emails("If checkout drags, Stripe lets you accept payments online [1].")
         self.assertIsNone(validate_sequence(repeat, brief))
@@ -1253,8 +1253,8 @@ class EvidenceTests(unittest.TestCase):
                                                        "a payments platform for internet businesses")]}
         def emails(third):
             return {"emails": [{"subject": "payments", "body": "Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?"},
-                               {"subject": "payments", "body": "Stripe lets you send invoices in minutes [2]. Who handles billing?"},
-                               {"subject": "payments", "body": f"{third} Open to a short call?"}]}
+                               {"subject": "Question for {company}", "body": "Stripe lets you send invoices in minutes [2]. Who handles billing?"},
+                               {"subject": "Question for {company}", "body": f"{third} Open to a short call?"}]}
         bare = emails("Stripe is a payments platform for internet businesses [3].")
         self.assertIsNone(validate_sequence(bare, brief))
         self.assertTrue(check_sequence(bare, brief, safe_subjects=True)[0])
@@ -1431,7 +1431,8 @@ class EvidenceTests(unittest.TestCase):
     def test_a_negative_elsewhere_in_the_proof_does_not_block_a_subject(self):
         """One "no" on any page used to refuse every subject, and with it the whole sequence on 6 of 19 real sites."""
         brief = {"product_name": "Stripe", "facts": [{"text": "t", "said_by": "seller", "quote": "Accept payments online in minutes"},
-                                                     {"text": "t", "said_by": "seller", "quote": "Stripe has no setup fees"}]}
+                                                     {"text": "t", "said_by": "seller", "quote": "Stripe has no setup fees"}],
+                 "problem": "Setup fees eat into margins."}
         mail = self.emails("Hi,\n[[PERSONAL]]\nStripe lets you accept payments online [1].\nWorth a call?")
         self.assertTrue(validate_sequence(mail, brief))
         mail["emails"][0]["subject"] = "No setup fees"
@@ -1644,6 +1645,21 @@ class SubjectFallbackTests(unittest.TestCase):
         self.assertIn("Stale", check_sequence(draft, brief)[1].title())
         emails, problem = check_sequence(draft, brief, safe_subjects=True)
         self.assertEqual((problem, emails[0]["subject"]), ("", "Question for {company}"))
+
+    def test_each_subject_is_about_its_own_email(self):
+        """Seen live in run 17: "Buying signals" over an email about personalized messages."""
+        from leadpoet_plugin.writer import _subject_off_body
+        brief = {"product_name": "Leadpoet", "problem": "The sales team spends hours sourcing and cleaning long lead lists "
+                                                        "instead of reaching buyers who show a reason to talk now."}
+        records = "Leadpoet creates new records and never changes the ones you already have.\n\nWho handles outbound at {company}?"
+        messages = "Leadpoet lets you send personalized emails and LinkedIn messages.\n\nWould a short call this week make sense?"
+        first = "[[PERSONAL]]\n\nIf long lead lists eat your team's hours, Leadpoet lets you get contacts at companies showing buying signals."
+        self.assertTrue(_subject_off_body("Buying signals", messages, brief, "Email 3"))
+        self.assertTrue(_subject_off_body("Buying signals", records, brief, "Email 2"))
+        for subject, body in (("Lead list hours", first), ("Buying signals", first), ("Personalized emails and messages", messages),
+                              ("Cleaning lists", records), ("Reaching buyers now", messages), ("Question for {company}", records),
+                              ("Leadpoet for {company}", messages), ("Quick question", messages)):
+            self.assertEqual(_subject_off_body(subject, body, brief, "Email 1"), "", subject)
 
 
 class SignalOpenerTests(unittest.TestCase):

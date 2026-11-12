@@ -603,6 +603,19 @@ def _subject_problem(subject: str, brief: dict, quotes: str, where: str) -> str:
     return ""
 
 
+def _stems(text: str) -> set[str]:
+    return {re.sub(r"(?:ing|ed|es|s)$", "", word) for word in re.findall(r"[a-z]+", text.lower()) if len(word) > 3}
+
+
+def _subject_off_body(subject: str, body: str, brief: dict, where: str) -> str:
+    """A subject names the buyer's problem or what its own email says. Seen live: "Buying signals" over personalized messages."""
+    product = brief["product_name"]
+    said = _PLACEHOLDER.sub(" ", re.sub(rf"(?<!\w){re.escape(product)}(?!\w)", " ", subject, flags=re.IGNORECASE))
+    if _stems(said) - _stems(" ".join(_SUBJECT_WORDS | GRAMMAR)) - _stems(f"{body} {brief.get('problem') or ''}"):
+        return f"The subject of {where} is about something its email never says. Use words from that email or the buyer's problem."
+    return ""
+
+
 # Words any If sentence may share: who, how long and "by hand" say nothing about which problem it is.
 _CONDITION_FILLER = frozenset({"your", "reps", "team", "teams", "that", "this", "with", "from", "still", "each", "every", "before",
                                "after", "many", "much", "most", "more", "spend", "spends", "spending", "lose", "loses", "losing",
@@ -651,7 +664,7 @@ def check_sequence(raw: dict | None, brief: dict, safe_subjects: bool = False) -
             return None, f"{where} has a number that no source has: {sorted(map(str, extra))[0]}."
         if set(_PLACEHOLDER.findall(f"{subject} {bare}".replace(PERSONAL, ""))) - _KNOWN_PLACEHOLDERS:
             return None, f"{where} has a placeholder I don't know."
-        problem = _subject_problem(subject, brief, quotes, where)
+        problem = _subject_problem(subject, brief, quotes, where) or _subject_off_body(subject, bare, brief, where)
         if problem and not safe_subjects:
             return None, problem
         if problem:  # Good emails aren't thrown out over a subject. This one states nothing.
