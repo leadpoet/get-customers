@@ -224,6 +224,13 @@ def _someone_else_speaks(quote: str, url: str, company: str, scan: Scan | None =
     return bool(_FIRST_PERSON.search(quote) or others)
 
 
+def _names_only(quote: str) -> bool:
+    """A logo strip is a list of names with no claim: "Pod Foods has Erewhon, Raley's, The Fresh Market" was seen live."""
+    words = [word for word in re.findall(r"[^\s,;&]+", quote) if word.lower() not in {"and", "or", "the", "of"}]
+    return (len(words) > 1 and ("," in quote or " and " in quote or "&" in quote)
+            and all(word[:1].isupper() or word[:1].isdigit() for word in words))
+
+
 def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dict], int]:
     """Return the lines that passed and how many were thrown out."""
     entries = raw.get("lines") if raw and isinstance(raw.get("lines"), list) else []
@@ -236,7 +243,7 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
         line, quote, url = _sentence(clean(entry.get("line"), 400)), clean(entry.get("quote"), 500), clean(entry.get("url"), 2000)
         line = _BADGE_CASE.sub(lambda badge: badge.group().lower(), line)
         # A stat tile's meaning is in the label beside it: "5000+ Salespeople" counts their users, not their staff.
-        good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _HAS_PASSIVE.search(line) and not _SELF_PRAISE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
+        good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _names_only(quote) and not _HAS_PASSIVE.search(line) and not _SELF_PRAISE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
                 and not _NO_SUBJECT_OPENING.match(line)
                 and quote_is_on_page(scan, url, quote) and line_is_supported(line, quote, person)
                 and not _someone_else_speaks(quote, url, str(person.get("company") or ""), scan)

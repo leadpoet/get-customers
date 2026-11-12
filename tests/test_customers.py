@@ -1322,6 +1322,11 @@ class EvidenceTests(unittest.TestCase):
                                "https://www.sendtrumpet.com/", "Trumpet")[0]["line"], "Trumpet is trusted by 15,000+ revenue teams.")
         self.assertEqual(lines("Born from SpaceX, Relativity and Novelis", "Machina Labs is Born from SpaceX, Relativity and Novelis.",
                                "https://machinalabs.ai/", "Machina Labs")[0]["line"], "Machina Labs is born from SpaceX, Relativity and Novelis.")
+        # Seen live: a strip of retailer logos became "Pod Foods has Erewhon, Raley’s, The Fresh Market, and Thrive Market."
+        for quote in ("Erewhon, Raley’s, The Fresh Market, and Thrive Market", "Sprouts’ Farmers Market, Whole Foods Market, and Walmart"):
+            self.assertFalse(lines(quote, f"Pod Foods has {quote}.", "https://www.podfoods.co/", "Pod Foods"), quote)
+        self.assertTrue(lines("Sold at Erewhon, Raley’s and Whole Foods Market", "Pod Foods is sold at Erewhon, Raley’s and Whole Foods Market.",
+                              "https://www.podfoods.co/", "Pod Foods"))
         # Seen live on bardeen.ai: their own positioning, said back to them.
         for quote in ("Bardeen is ideal for GTM teams across various roles including Sales (SDRs, AEs)",
                       "Bardeen is the leading AI agent for GTM teams", "Bardeen is built for GTM teams"):
