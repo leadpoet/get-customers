@@ -398,7 +398,8 @@ _OWN_PARTS = frozenset({"sales", "team", "teams", "sdr", "sdrs", "ae", "aes", "b
 _OWN_PRODUCTS = frozenset({"platform", "product", "products", "app", "apps", "software", "api", "tool", "tools", "marketplace", "network",
                             "service", "services", "solution", "solutions", "ai", "agent", "agents", "assistant", "copilot", "chatbot",
                             "voice", "feature", "features", "model", "models", "engine", "system", "systems", "suite", "module",
-                            "modules", "integration", "integrations", "kiosk", "kiosks", "device", "devices", "hardware"})
+                            "modules", "integration", "integrations", "kiosk", "kiosks", "device", "devices", "hardware",
+                            "crm", "ats", "hris", "erp"})  # Seen live, run 42: "Gem's recruiting CRM was used".
 _THIRD_PARTIES = frozenset({"competitor", "competitors", "rival", "rivals", "customer", "customers", "client", "clients", "partner", "partners",
                             "investor", "investors", "backer", "backers", "parent", "subsidiary", "acquirer", "vendor", "vendors", "supplier", "suppliers"})
 
@@ -406,12 +407,16 @@ _THIRD_PARTIES = frozenset({"competitor", "competitors", "rival", "rivals", "cus
 def _owned(words: list[str], at: int) -> bool:
     """ "Zuma's customer base grew" is theirs too; "Zuma's customer Acme raised" is Acme's news (run 32).
 
-    So is "Persefoni's carbon accounting platform was adopted" (run 33), but not "Ramp's competitor Beta's platform"."""
-    if at < len(words) and (words[at] in _OWN_PARTS or words[at] in ("customer", "user", "client") and words[at + 1:at + 2] in (["base"], ["count"])):
-        return True
+    So is "Persefoni's carbon accounting platform was adopted" (run 33), but not "Ramp's competitor Beta's platform".
+    Only words that are surely theirs count. A rule that counted anything not named as someone else let about 40 of 108
+    red-team notes through ("Zuma's spinoff", "new owner", "reseller"), so a third party anywhere after it still refuses:
+    "Zuma's sales partner Acme" and "Zuma's AI rival" are someone else's news."""
     ahead = words[at:at + 4]
-    return any(word in _OWN_PRODUCTS and not _THIRD_PARTIES.intersection(ahead[:used]) and all("'" not in w for w in ahead[:used])
-               for used, word in enumerate(ahead))
+    if at < len(words) and words[at] in ("customer", "user", "client") and words[at + 1:at + 2] in (["base"], ["count"]):
+        return True
+    if _THIRD_PARTIES.intersection(words[at:]) or any("'" in word for word in ahead):  # "cofounder left to start a rival"
+        return False
+    return at < len(words) and words[at] in _OWN_PARTS or any(word in _OWN_PRODUCTS for word in ahead)
 
 
 def _own_possessive(words: list[str], name: list[str]) -> list[str]:
