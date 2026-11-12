@@ -1,20 +1,16 @@
-"""The tests' made-up world: Sunnyday, a delivery-software seller, three freight prospects and a stand-in model.
-
-The plugin ships only neutral made-up prospects for /customers demo. Loading this module puts Sunnyday's page and
-its freight prospects in their place, so every test runs the whole job with no network and no model.
+"""The tests' made-up world: Sunnyday, a delivery-software seller, three freight prospects, a stand-in model and a Leadpoet
+that answers from memory. Every test runs the whole job with no network and no model.
 """
 
 from __future__ import annotations
 
 import json
+import urllib.parse
 from types import SimpleNamespace
 from typing import Any
 
-from leadpoet_plugin import customers_demo
-from leadpoet_plugin.customers_demo import DemoCustomersApi as _Shipped, demo_fetch  # noqa: F401
-
-SHIPPED_PEOPLE = [dict(person) for person in customers_demo.PEOPLE]
-SHIPPED_PAGES = dict(customers_demo._PAGES)
+from leadpoet_plugin.customers import SCOPES
+from leadpoet_plugin.website import SiteError
 
 SELLER = "https://sunnyday.example"
 _PAGES = {
@@ -25,13 +21,13 @@ _PAGES = {
     "https://tallgrasscouriers.example/": "Tallgrass Couriers. Same-day courier routes across Omaha and Lincoln. Our drivers cover medical, legal and retail deliveries, and every route is planned the night before by our dispatch desk. Two shifts run each weekday, and a driver picks up within the hour.",
 }
 PEOPLE = [
-    {"id": "demo-marcus", "query_id": "demo-find", "name": "Marcus Oyelaran", "role": "VP Operations", "company": "Pinecrest Freight",
+    {"id": "lead-marcus", "query_id": "find-1", "name": "Marcus Oyelaran", "role": "VP Operations", "company": "Pinecrest Freight",
      "email": "marcus@pinecrest-freight.example", "website": "https://pinecrest-freight.example/",
      "icp_details": "Posted a night dispatcher role on Oct 28 that asks for clean shift handovers."},
-    {"id": "demo-priya", "query_id": "demo-find", "name": "Priya Raman", "role": "Head of Logistics", "company": "Harbor Lane Roasters",
+    {"id": "lead-priya", "query_id": "find-1", "name": "Priya Raman", "role": "Head of Logistics", "company": "Harbor Lane Roasters",
      "email": "priya@harborlaneroasters.example", "website": "https://harborlaneroasters.example/",
      "icp_details": "Launched a wholesale program in October that runs its own van routes to cafes."},
-    {"id": "demo-lena", "query_id": "demo-find", "name": "Lena Fischer", "role": "Operations Director", "company": "Tallgrass Couriers",
+    {"id": "lead-lena", "query_id": "find-1", "name": "Lena Fischer", "role": "Operations Director", "company": "Tallgrass Couriers",
      "email": "lena@tallgrasscouriers.example", "website": "https://tallgrasscouriers.example/"},
 ]
 _BRIEF = {
@@ -76,8 +72,8 @@ _SIGNAL_LINES = {
 }
 
 
-class DemoLlm:
-    """Stand-in model, so the demo needs no key and costs nothing. Its output goes through the same checks."""
+class StockLlm:
+    """Stand-in model. Its output goes through the same checks as a real one's."""
 
     def complete(self, messages: list[dict], **kwargs: Any) -> Any:
         purpose = str(kwargs.get("purpose") or "")
@@ -91,13 +87,89 @@ class DemoLlm:
         return SimpleNamespace(text=json.dumps(_LINES.get(company, {"lines": []})))
 
 
-customers_demo._PAGES.update(_PAGES)
-customers_demo.PEOPLE[:] = PEOPLE
+def stock_fetch(url: str) -> tuple[str, str]:
+    """The made-up companies' pages. Any other address fails, so no test can read a real site."""
+    key = url if url.endswith("/") else url + "/"
+    if key in _PAGES:
+        return key, f"<html><head><title>Stock</title></head><body><p>{_PAGES[key]}</p></body></html>"
+    raise SiteError(f"{urllib.parse.urlsplit(url).hostname} isn't one of the tests' pages.")
 
 
-class DemoCustomersApi(_Shipped):
-    """Leadpoet's stand-in, with Sunnyday's sender."""
+class StockApi:
+    """Answers like Leadpoet, in memory. There is no way to reach a real inbox from here."""
 
     def __init__(self) -> None:
-        super().__init__()
+        self.approved: list[str] = []
+        self._campaigns: dict[str, dict] = {}
+        self._drafts: dict[str, dict] = {}
+        self._live: set[str] = set()
         self.sender_name = "Sam at Sunnyday"
+
+    def identity(self) -> dict:
+        return {"scopes": list(SCOPES)}
+
+    def profile(self) -> dict:
+        return {"profile": {"voice": {"sender_name": self.sender_name}}}
+
+    def credits(self) -> dict:
+        return {"credits_remaining": 100, "plan": "free"}
+
+    def contact_settings(self) -> dict:
+        return {"included_contacts_per_company": 1, "pricing": {"credits_per_company": 10, "credits_per_extra_contact": 5}}
+
+    def create_request(self, body: dict, idempotency_key: str) -> dict:
+        return {"query_id": "find-1", "icp_id": "icp-1", "credits_remaining": 0}
+
+    def get_request(self, query_id: str) -> dict:
+        return {"id": query_id, "status": "completed", "companies_delivered": len(PEOPLE), "progress": {"state": "ready"}}
+
+    def list_requests(self) -> list[dict]:
+        return []
+
+    def pipeline_contacts(self, icp_id: str | None) -> list[dict]:
+        return [dict(person) for person in PEOPLE]
+
+    def email_accounts(self) -> list[dict]:
+        return [{"id": "sender-1", "channel": "email", "status": "active", "paused": False}]
+
+    def create_audience(self, body: dict, idempotency_key: str) -> dict:
+        return {"snapshot_id": f"snapshot-{body['lead_ids'][0]}", "admitted": 1, "excluded_count": 0}
+
+    def create_campaign(self, body: dict, idempotency_key: str) -> dict:
+        strategy_id = f"campaign-{len(self._campaigns) + 1}"
+        self._campaigns[strategy_id] = body
+        return {"strategy_id": strategy_id}
+
+    def contract_proposal(self, campaign_id: str) -> dict:
+        return {"ready": True, "contract": {"id": campaign_id}, "contract_sha256": "stock"}
+
+    def campaign_preview(self, campaign_id: str) -> dict:
+        return {"preview_version": "stock", "fit_confirmation": {"ok": True}, "complianceComplete": True, "missingSenderDetails": []}
+
+    def get_campaign(self, campaign_id: str) -> dict:
+        return {"strategy": {"id": campaign_id, "status": "active" if campaign_id in self._live else "draft"}}
+
+    def launch_campaign(self, campaign_id: str, body: dict) -> dict:
+        self._live.add(campaign_id)
+        body_of_campaign = self._campaigns[campaign_id]
+        sequence = body_of_campaign["advanced_settings"]["controlled_campaign"]["sequence"]
+        lead_id = body_of_campaign["audience_snapshot_id"].removeprefix("snapshot-")
+        first = sequence["touches"][0]
+        self._drafts[f"draft-{campaign_id}"] = {
+            "id": f"draft-{campaign_id}", "lead_id": lead_id, "lead": {"id": lead_id}, "can_approve": True,
+            "rendered_subject": first["subject"], "rendered_body": first["body"] + '\n--\nDon\'t want these? Reply "unsubscribe".',
+            "quality_attestation_id": "stock", "review_revision": 1,
+            "intended_send_start": "2026-11-11T14:00:00Z", "intended_send_end": "2026-11-11T18:00:00Z",
+        }
+        return {"status": "active"}
+
+    def review_drafts(self, max_pages: int = 5) -> list[dict]:
+        return list(self._drafts.values())
+
+    def approve_drafts(self, approvals: list[dict]) -> dict:
+        results = {}
+        for approval in approvals:
+            self.approved.append(approval["message_id"])
+            self._drafts.pop(approval["message_id"], None)
+            results[approval["message_id"]] = {"status": "authorized"}
+        return results

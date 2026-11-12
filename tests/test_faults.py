@@ -6,7 +6,7 @@ from pathlib import Path
 
 from leadpoet_plugin.api import ApiError
 from leadpoet_plugin.customers import Customers
-from stock import DemoCustomersApi, DemoLlm, SELLER, demo_fetch
+from stock import StockApi, StockLlm, SELLER, stock_fetch
 from leadpoet_plugin.store import Store
 
 WRITES = ("create_request", "create_audience", "create_campaign", "launch_campaign", "approve_drafts")
@@ -18,10 +18,8 @@ class Crash(BaseException):
     """The process died here."""
 
 
-class FaultyApi(DemoCustomersApi):
+class FaultyApi(StockApi):
     """Answers like Leadpoet: a repeated key returns the first answer, and a second launch is refused."""
-
-    demo = False
 
     def __init__(self):
         super().__init__()
@@ -60,27 +58,27 @@ class FaultyApi(DemoCustomersApi):
     def create_request(self, body, key):
         def make():
             self.charges += 1
-            return DemoCustomersApi.create_request(self, body, key)
+            return StockApi.create_request(self, body, key)
         return self._once(key, body, make)
 
     def create_audience(self, body, key):
-        return self._once(key, body, lambda: DemoCustomersApi.create_audience(self, body, key))
+        return self._once(key, body, lambda: StockApi.create_audience(self, body, key))
 
     def create_campaign(self, body, key):
-        return self._once(key, body, lambda: DemoCustomersApi.create_campaign(self, body, key))
+        return self._once(key, body, lambda: StockApi.create_campaign(self, body, key))
 
     def launch_campaign(self, campaign_id, body):
         if campaign_id in self.launches:
             raise ApiError("already launched", status=409, code="ALREADY_AUTHORIZED")
         self.launches[campaign_id] = True
-        return DemoCustomersApi.launch_campaign(self, campaign_id, body)
+        return StockApi.launch_campaign(self, campaign_id, body)
 
 
 class FaultWalk(unittest.TestCase):
     def walk(self, at, kind):
         with tempfile.TemporaryDirectory() as folder:
             api, store, clock = FaultyApi(), Store(Path(folder) / "a.db"), [1000.0]
-            make = lambda: Customers(api, store, DemoLlm(), demo_fetch, now=lambda: clock[0])
+            make = lambda: Customers(api, store, StockLlm(), stock_fetch, now=lambda: clock[0])
             customers = make()
             text = customers.start(SELLER)
             code = text.split("/customers go ")[1].split()[0]

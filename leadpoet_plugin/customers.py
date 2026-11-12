@@ -78,7 +78,6 @@ HELP = """/customers yoursite.com: find your customers
 /customers open <site>: switch to another search
 /customers all: read every email, then approve them together
 /customers check: refresh now
-/customers demo yoursite.com: preview it with made-up contacts, no account needed
 /customers reset: start over"""
 
 
@@ -324,8 +323,7 @@ class Customers:
         job = self.job()
         if job and job.get("find_body") and argument.lower() != "confirm":
             return self._unconfirmed_find(job)
-        if (job and job["stage"] not in (*_SETTLED, "needs_key", "needs_credits") and argument.lower() != "confirm"
-                and not getattr(self.api, "demo", False)):
+        if job and job["stage"] not in (*_SETTLED, "needs_key", "needs_credits") and argument.lower() != "confirm":
             return ("This search has spent credits, so I'll keep it unless you're sure.\n"
                     "To look at another company, just send /customers othersite.com and this one keeps running.\n"
                     "Drop it anyway: /customers reset confirm")
@@ -366,19 +364,10 @@ class Customers:
             return f"{error.args[0]}\n\n{_PASTE_INSTEAD}"
         return self._start_from(scan, url, job, "Try a page that says what you sell: /customers yoursite.com/product", note)
 
-    def preview_of(self, real: dict) -> str:
-        """The demo of a site they already have a search for shows that search's card, so the preview is of the same buyer."""
-        # A different id, so the demo's code can never be the real search's code.
-        self.save({"id": "demo-" + real["id"], "stage": "scanned", "brief": real["brief"], "people": [], "emails": None,
-                   "voice_sample": real.get("voice_sample", ""), "created_at": self.now(), "typed": real.get("typed", "")})
-        return self._next(self.job())
-
     def _buyer(self, who: str) -> str:
         """The card can name a buyer the founder doesn't sell to. They say who does buy, and the site is read again."""
         job = self.job()
         who = " ".join(who.split())[:MAX_BUYER_NOTE]
-        if getattr(self.api, "demo", False):
-            return "The demo keeps the buyer on its card. On your own search, /customers buyer <who buys> changes it."
         if not job or job["stage"] in ("done", "failed", "live"):
             return "Start with /customers yoursite.com. If the card names the wrong buyer, say who buys then."
         if job["stage"] not in ("scanned", "needs_key", "needs_credits") or job.get("find_body"):
@@ -516,10 +505,9 @@ class Customers:
         if isinstance(body, int):
             return self._hand_off(job, body)
         quoted = job.get("quoted_credits")
-        demo = getattr(self.api, "demo", False)  # The demo's made-up credits have no price to show.
-        if not retry and not quoted and not demo:  # Added a key after the offer, or the price couldn't be read then.
+        if not retry and not quoted:  # Added a key after the offer, or the price couldn't be read then.
             return "Here's the cost before anything is spent.\n\n" + self._offer(job)
-        if not retry and not demo and body["credit_budget"] != quoted:  # Never charge a different amount than was shown.
+        if not retry and body["credit_budget"] != quoted:  # Never charge a different amount than was shown.
             job.pop("quoted_credits", None)
             return "Leadpoet's price changed since you looked, so nothing was spent.\n\n" + self._offer(job)
         job["find_body"] = body
@@ -554,10 +542,6 @@ class Customers:
                    companies=body["max_leads"], spent=body["credit_budget"], credits_left=data.get("credits_remaining"),
                    asked_at=self.now())
         self.save(job)
-        if demo:  # The demo has no wait to sit through, so it goes straight to what the wait ends in.
-            self._refresh_find(job)
-            return ("For real, Leadpoet now takes 1 to 2 days to find and verify every contact, and Hermes pings you when they land. "
-                    "The demo skips the wait.\n\n" + self._next(self.job() or job))
         return self._next(job)
 
     def _find_key(self, job: dict) -> str:
@@ -1008,8 +992,7 @@ class Customers:
                     refused += 1
         if approved:
             noun = f"{approved} approved email{'s' if approved != 1 else ''}"
-            if not getattr(self.api, "demo", False):  # The demo's finish says it once.
-                notes.append(f"{noun} on the way. Replies come to /desk.")
+            notes.append(f"{noun} on the way. Replies come to /desk.")
         if refused:
             notes.append(f"Leadpoet wants a person to check {refused} email{'s' if refused != 1 else ''} first, so {'they are' if refused != 1 else 'it is'} waiting in Review:\n{OUTREACH_URL}")
         if job:
@@ -1132,8 +1115,7 @@ class Customers:
     # What to show ----------------------------------------------------------------------------
     def _next(self, job: dict | None, refresh: bool = False) -> str:
         if not job:
-            return ("Send your website to begin: /customers yoursite.com\n"
-                    "Or preview it first with made-up contacts, no account needed: /customers demo yoursite.com")
+            return "Send your website to begin: /customers yoursite.com\nThe first look at who buys from you needs no account."
         notes: list[str] = []
         if refresh and self.api is not None and job["stage"] in ("needs_credits", "finding", "reviewing", "launching", "live"):
             try:
@@ -1146,8 +1128,7 @@ class Customers:
     def _stage_text(self, job: dict) -> str:
         stage = job["stage"]
         if stage == "scanned":
-            hidden = getattr(self.api, "demo", False) or job["brief"].get("domain") == "your-company"
-            fix = "" if hidden else (_ONE_BUYER if job.get("buyer_named") else _OTHER_BUYER) + "\n\n"
+            fix = "" if job["brief"].get("domain") == "your-company" else (_ONE_BUYER if job.get("buyer_named") else _OTHER_BUYER) + "\n\n"
             return briefs.card(job["brief"]) + "\n\n" + fix + self._offer(job)
         if stage == "needs_key" and self.api is not None:
             try:  # Say so now if the new key won't work, rather than after they confirm.
@@ -1182,9 +1163,6 @@ class Customers:
                     f"4. Keep Companies at {COMPANIES} with one contact each, then press Submit request.\n\n"
                     "I'll pick it up from there and ping you when your contacts land. /customers check looks now.\n"
                     f"Already used your free credits? Add credits there, then: /customers go {self._brief_code(job)}")
-        if stage == "finding" and getattr(self.api, "demo", False):
-            return ("For real, this is where Leadpoet takes 1 to 2 days to find and verify every contact, and Hermes pings you when they land. "
-                    "The demo skips the wait. Send /customers")
         if stage == "finding" and job.get("delivered_empty"):
             return "Leadpoet finished, but I can't see a contact with an email yet. Check Pipeline in Leadpoet. /customers check looks again."
         if stage == "finding":
@@ -1208,9 +1186,8 @@ class Customers:
                 return (f"Nothing launched. Leadpoet's safety checks held back {len(held)}, who may have opted out or been contacted recently"
                         + (f", and you skipped {skipped}" if skipped else "") + ". /customers reset starts a new one.")
             sequences = f"{launched} sequence{'s' if launched != 1 else ''}"
-            text = (f"Demo finished, and nothing was sent. For real, {sequences} would now run, each stopped by any reply.\nNow answer a reply: /desk"
-                    if getattr(self.api, "demo", False) else f"Live. {sequences} running, stopped by any reply. Answer them with /desk.")
-            return text + self._first_send(job) + (f"\n{len(held)} held back by Leadpoet's safety checks." if held else "")
+            return (f"Live. {sequences} running, stopped by any reply. Answer them with /desk." + self._first_send(job)
+                    + (f"\n{len(held)} held back by Leadpoet's safety checks." if held else ""))
         if stage == "failed":
             return f"{job.get('failure')} No more credits will be used. /customers reset starts over."
         return "All done. /customers reset starts a new one."
@@ -1259,14 +1236,11 @@ class Customers:
             pass  # Launching says so if it's still missing. A tip mustn't break the wait.
         if not job.get("voice_sample"):
             rows.append("• Your voice: paste a few lines you wrote. /customers voice <text>")
-        domain = str(job["brief"].get("domain") or "")
-        site = f" {domain}" if "." in domain else ""
-        rows.append(f"• Preview: write and approve with made-up contacts. /customers demo{site}")
-        return "While you wait:\n" + "\n".join(rows)
+        return "While you wait:\n" + "\n".join(rows) if rows else ""
 
     def _first_send(self, job: dict) -> str:
         """When the next of these emails leaves, so "Live" never reads as "nothing is happening"."""
-        if getattr(self.api, "demo", False) or not hasattr(self.api, "queued_messages"):
+        if not hasattr(self.api, "queued_messages"):
             return ""
         ours = {row["id"] for row in job["people"] if row["state"] == "launched"}
         try:
@@ -1288,8 +1262,6 @@ class Customers:
             return (f"Next, find {COMPANIES} companies with verified contacts.\n"
                     "It takes a free Leadpoet account.\n\n"
                     f"Try it now:\n/customers go {code}")
-        if getattr(self.api, "demo", False):
-            return f"See how it finds prospects, using 3 made-up companies: /customers go {code}"
         try:
             price = int((self.api.contact_settings().get("pricing") or {}).get("credits_per_company") or 0)
             credits = self.api.credits()
@@ -1372,15 +1344,6 @@ class Customers:
 def _plain(code: Any) -> str:
     """legal_entity and booking_link_missing are Leadpoet's names, not the user's."""
     return re.sub(r"_missing$", "", str(code)).replace("_", " ")
-
-
-def same_site(job: dict, typed: str) -> bool:
-    """Whether the site someone typed is the one this search is for."""
-    try:
-        host = re.sub(r"^https?://(www\.)?", "", normalize_site(typed_site(typed))).split("/")[0].lower()
-    except SiteError:
-        return False
-    return host in (job.get("typed"), str((job.get("brief") or {}).get("domain") or "").lower())
 
 
 def _site(job: dict) -> str:

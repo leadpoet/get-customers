@@ -13,9 +13,7 @@ if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
 from leadpoet_plugin.api import ApiError, LeadpoetApi  # noqa: E402
-from leadpoet_plugin.customers import ADD_KEY, HELP as CUSTOMERS_HELP, KEY_STEPS, NO_MODEL, Customers, same_site, trouble  # noqa: E402
-from leadpoet_plugin.customers_demo import DemoCustomersApi, demo_fetch  # noqa: E402
-from leadpoet_plugin.demo import DemoApi  # noqa: E402
+from leadpoet_plugin.customers import ADD_KEY, HELP as CUSTOMERS_HELP, KEY_STEPS, Customers, trouble  # noqa: E402
 from leadpoet_plugin.desk import Desk  # noqa: E402
 from leadpoet_plugin.poll import data_dir, get_key, main as poll_main  # noqa: E402
 from leadpoet_plugin.store import Store  # noqa: E402
@@ -28,13 +26,10 @@ SCRIPT_NAME = "leadpoet_poll.py"
 HELP = """/desk: answer the next reply
 /desk list: see what's waiting
 /desk check: look for new replies now
-/desk status: check your connection
-/desk demo: try it with fictional replies
-/desk demo off: return to your workspace"""
+/desk status: check your connection"""
 SETUP = ("/desk answers the replies to your Leadpoet outreach, so it needs your Leadpoet API key.\n\n"
          f"1. {KEY_STEPS}\n2. Add it where Hermes runs: {ADD_KEY}\n\n"
-         "No account yet? Try it with made-up replies: /desk demo\n"
-         "Or find your first customers: /customers yoursite.com")
+         "No account yet? Find your first customers: /customers yoursite.com")
 
 
 def is_allowed(platform: str, source: Any, allowed_ids: Any) -> bool:
@@ -54,42 +49,18 @@ class Plugin:
     def __init__(self, ctx: Any, directory: Path | None = None):
         self.ctx = ctx
         self._dir = directory
-        self._demo_api: DemoApi | None = None
-        self._demo_customers: DemoCustomersApi | None = None
-        self._stores: dict[str, Store] = {}
+        self._live: Store | None = None
 
-    def _store(self, name: str) -> Store:
-        if name not in self._stores:
+    def _store(self) -> Store:
+        if self._live is None:
             directory = self._dir or data_dir()
             directory.mkdir(parents=True, exist_ok=True)
-            self._stores[name] = Store(directory / f"{name}.db")
-        return self._stores[name]
-
-    def in_demo(self) -> bool:
-        return self._store("live").get("demo") == "1"
+            self._live = Store(directory / "live.db")
+        return self._live
 
     def desk(self) -> Desk | None:
-        llm = getattr(self.ctx, "llm", None)
-        if self.in_demo():
-            self._demo_api = self._demo_api or DemoApi()
-            return Desk(self._demo_api, self._store("demo"), llm)
         key = get_key()
-        return Desk(LeadpoetApi(key), self._store("live"), llm) if key else None
-
-    def _demo(self, argument: str) -> str:
-        live = self._store("live")
-        if argument == "off":
-            live.put("demo", None)
-            self._demo_api = None
-            return "Demo off. Start for real: /customers yoursite.com"
-        live.put("demo", "1")
-        self._demo_api = DemoApi()
-        self._store("demo").reset_replies()
-        desk = self.desk()
-        desk.sync()
-        for item in desk.store.open_items():
-            desk.store.update(item["task_id"], state="new", skipped=0, draft=None)
-        return desk.show("Demo mode: these replies are fictional and nothing can reach anyone.")
+        return Desk(LeadpoetApi(key), self._store(), getattr(self.ctx, "llm", None)) if key else None
 
     def command(self, raw_args: str, *, platform: str = "", source: Any = None, **_: Any) -> str:
         try:
@@ -100,8 +71,6 @@ class Plugin:
             argument = parts[1].strip() if len(parts) > 1 else ""
             if action == "help":
                 return HELP
-            if action == "demo":
-                return self._demo(argument.lower())
             desk = self.desk()
             if desk is None:
                 return SETUP
@@ -121,71 +90,19 @@ class Plugin:
             if action == "list":
                 return desk.listing()
             desk.store.mark_alerted([item["task_id"] for item in desk.store.unalerted()])
-            return desk.show() + self._real_waiting()
+            return desk.show()
         except ApiError as error:
             return trouble(error)
         except Exception:
             logger.exception("leadpoet command failed")
             return "Something went wrong and nothing was sent."
 
-    def _real_waiting(self) -> str:
-        """Alerts keep coming for real replies during the demo, so say where they are."""
-        if not self.in_demo():
-            return ""
-        waiting = len(self._store("live").open_items())
-        return f"\n\n{waiting} real repl{'y is' if waiting == 1 else 'ies are'} waiting. Back to them: /desk demo off" if waiting else ""
-
     def _say(self) -> Any:
         return getattr(self.ctx, "post_message", None)
 
     def customers(self) -> Customers:
-        llm = getattr(self.ctx, "llm", None)
-        if self.in_demo():
-            self._demo_customers = self._demo_customers or DemoCustomersApi()
-            job = Customers(None, self._store("demo")).job()
-            self._demo_customers.fit = job["brief"] if job else None  # So the made-up prospects fit this search.
-            return Customers(self._demo_customers, self._store("demo"), llm, demo_fetch, say=self._say())
         key = get_key()
-        return Customers(LeadpoetApi(key) if key else None, self._store("live"), llm, say=self._say())
-
-    def _real_search(self) -> dict | None:
-        """The search on the real account, which keeps running while the demo is open."""
-        job = Customers(None, self._store("live")).job()
-        return job if job and job["stage"] not in ("scanned", "done") else None
-
-    def _customers_demo(self, argument: str) -> str:
-        if argument.lower() == "off":
-            off = self._demo("off")
-            if not self._real_search():
-                return off
-            return "Demo off. Back to your real search.\n\n" + self.customers().handle("", "")
-        mine = Customers(None, self._store("live")).job()
-        if not argument and not mine:
-            return "Add your site to preview it with made-up contacts: /customers demo yoursite.com"
-        if getattr(self.ctx, "llm", None) is None:
-            return NO_MODEL
-        already = self.in_demo()
-        self._store("live").put("demo", "1")
-        self._demo_api, self._demo_customers = DemoApi(), DemoCustomersApi()
-        self._store("demo").reset()
-        desk = self.desk()
-        desk.sync()
-        for item in desk.store.open_items():
-            desk.store.update(item["task_id"], state="new", skipped=0, draft=None)
-        real = self._real_search()
-        state = "is saved" if real and real["stage"] in ("needs_key", "needs_credits") else "keeps running"
-        kept = f"\nYour real search {state}. Back to it any time: /customers demo off" if real else ""
-        demo = self.customers()
-        made_up = f"The prospects are made up, so nothing can reach anyone.{kept}\n\n"
-        # With no site named, or the site of the search they have, the preview is of that search: same card, nothing read twice.
-        if mine and (not argument or same_site(mine, argument)):
-            return "Demo mode: this is your own search. " + made_up + demo.preview_of(mine)
-        said = demo.start(argument)
-        if not demo.job():  # The site couldn't be read, so there is nothing to preview and no demo to be left in.
-            if not already:
-                self._demo("off")
-            return said
-        return "Demo mode: this is your real website, read by your model. " + made_up + said
+        return Customers(LeadpoetApi(key) if key else None, self._store(), getattr(self.ctx, "llm", None), say=self._say())
 
     def customers_command(self, raw_args: str, *, platform: str = "", source: Any = None, **_: Any) -> str:
         try:
@@ -196,14 +113,7 @@ class Plugin:
             argument = parts[1].strip() if len(parts) > 1 else ""
             if action == "help":
                 return CUSTOMERS_HELP
-            if action == "demo":
-                return self._customers_demo(argument)
-            if self.in_demo() and action and action not in _CUSTOMER_ACTIONS:
-                return "You're in the demo. Leave it with /customers demo off, then send your site."
-            text = self.customers().handle(action if action in _CUSTOMER_ACTIONS or not action else parts[0], argument)
-            if text.startswith("Demo finished") and self._real_search():
-                text += "\nBack to your real search: /customers demo off"
-            return text
+            return self.customers().handle(action if action in _CUSTOMER_ACTIONS or not action else parts[0], argument)
         except ApiError as error:
             return trouble(error)
         except Exception:
@@ -334,8 +244,8 @@ def register(ctx: Any) -> None:
     ctx.register_tool("leadpoet_desk_set_draft", "leadpoet_desk", SET_DRAFT_SCHEMA, plugin.tool_set_draft)
     ctx.register_tool("leadpoet_customers_status", "leadpoet_desk", CUSTOMERS_SCHEMA, plugin.tool_customers)
     ctx.register_command("customers", handler=_styled(plugin.customers_command), description="Turn your website into customers",
-                         args_hint="yoursite.com | demo yoursite.com")
+                         args_hint="yoursite.com")
     ctx.register_command("desk", handler=_styled(plugin.command), description="Answer your Leadpoet sales replies",
-                         args_hint="list | check | demo | send <code>")
+                         args_hint="list | check | send <code>")
     ctx.register_cli_command(name="leadpoet", help="Set up Leadpoet alerts",
                              setup_fn=_watch_setup, handler_fn=_watch_command)

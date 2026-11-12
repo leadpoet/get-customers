@@ -19,9 +19,9 @@ MARKDOWN_PLATFORMS = {"signal", "telegram", "whatsapp", "whatsapp_cloud", "disco
 MARKDOWN = ("**", "**", "`", "`")
 ANSI = ("\033[1m", "\033[22m", "\033[36m", "\033[39m")
 
-_ACTIONS = ("go|open|write|approve|use|all|skip|list|check|voice|about|buyer|reset|demo|help|"
+_ACTIONS = ("go|open|write|approve|use|all|skip|list|check|voice|about|buyer|reset|help|"
             "send|edit|redraft|status")
-_ARGUMENT = r"(?:[0-9a-f]{4}\b|<[^>\n]+>|off\b|confirm\b|[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/[^\s`]*)?)"
+_ARGUMENT = r"(?:[0-9a-f]{4}\b|<[^>\n]+>|confirm\b|[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/[^\s`]*)?)"
 _START = r"(?<![^\s(])"  # A command starts a line or follows a space, so the same letters inside a web address aren't one.
 # A search is opened by its name, which may be several words, so that command runs to the end of its line.
 _COMMAND = re.compile(rf"{_START}/customers open (?!<)[^\n`*]*[^\n`*\s]$|"
@@ -39,7 +39,7 @@ _REPLY_END = re.compile(r"^(?:/desk (?:send|edit|redraft|skip)\b.*|Fill in the \
 _BULLET = re.compile(r"^• ([^:\n]{2,40}):(?= )")
 # With several searches going, news starts with the name of the one it's about.
 _LEAD = re.compile(r"^((?:[^\n:]{1,80}: )?\d+ verified contacts? (?:is|are) in\.|Approved [^\n]{1,80}\.$|Sent to [^\n]{1,120}\.$|"
-                   r"Live\.|Your key is in\.|Demo finished, and nothing was sent\.|[^\n]{1,120} replied(?= \())")
+                   r"Live\.|Your key is in\.|[^\n]{1,120} replied(?= \())")
 _DESK_HEAD = re.compile(r"^(\d+ of \d+ · )([^·\n]+)( · .*)$")
 _PERSON = re.compile(r"^[^\n:]{2,80}, [^\n:]{2,80} at [^\n:]{2,80}$")
 _ADDRESS = re.compile(r"^\S+@\S+\.\S+$")

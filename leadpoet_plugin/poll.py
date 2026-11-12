@@ -74,8 +74,6 @@ def main() -> int:
     api, store = LeadpoetApi(key), Store(data_dir() / "live.db")
     try:
         texts = [run(Desk(api, store)), advance(Customers(api, store), store)]
-        if texts[1] and store.get("demo") == "1":  # Its commands would otherwise land on the demo's made-up search.
-            texts[1] += "\n\nYou're in the demo right now. Back to your real search: /customers demo off"
     except ApiError as error:
         print(f"Leadpoet refused this key: {error.message}", file=sys.stderr)
         return 1

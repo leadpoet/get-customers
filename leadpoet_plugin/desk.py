@@ -278,8 +278,6 @@ class Desk:
         return without_tag(text, "conversation")
 
     def _write_draft(self, item: dict, note: str = "") -> str | None:
-        if self.api.demo and not note:
-            return self.api.suggested(item["task_id"])
         if self.llm is None:
             return None
         try:
@@ -445,8 +443,6 @@ class Desk:
         return self.show(f"Sent to {who}.")
 
     def status(self) -> str:
-        if self.api.demo:
-            return "Demo mode. Nothing here is real and nothing can be sent.\n\n/desk demo off"
         try:
             self.sync()
             scopes = self.api.identity().get("scopes") or []

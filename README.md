@@ -14,15 +14,9 @@ Send your website. Get customers.
 
 **Answer.** Replies come back to `/desk`. Hermes drafts, you send.
 
-## Try it now, with no account
+## The first look needs no account
 
-```
-/customers demo yoursite.com
-```
-
-It reads your real site with your model and runs the whole job: the brief, the contacts, the emails and the approval. The brief is real. The companies and people are made up, so nothing can reach anyone, and it needs no key.
-
-Already have a search? `/customers demo` previews that one, with the same card.
+`/customers yoursite.com` reads your site with your own model and shows who buys from you: the companies, the roles that decide and the buying signals, each fact with its source. It needs no key and costs nothing.
 
 ## Try it for real
 

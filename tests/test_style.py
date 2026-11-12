@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 from leadpoet_plugin import style  # noqa: E402
 from leadpoet_plugin.style import ANSI, mark, render  # noqa: E402
 import stock  # noqa: E402
-from test_desk import FakeCtx, load_entry  # noqa: E402
+from test_desk import FakeApi, FakeCtx, FakeLlm, load_entry, task  # noqa: E402
 
 
 def plain(text: str) -> str:
@@ -31,7 +31,6 @@ class MarkCase(unittest.TestCase):
         self.assertEqual(mark("Answer them with /desk."), "Answer them with `/desk`.")
         self.assertEqual(mark("Then: /customers go 74fc"), "Then: `/customers go 74fc`")
         self.assertEqual(mark("/desk edit <your text>"), "`/desk edit <your text>`")
-        self.assertEqual(mark("Back to them: /desk demo off"), "Back to them: `/desk demo off`")
         self.assertEqual(mark("just send /customers othersite.com and this one keeps running."),
                          "just send `/customers othersite.com` and this one keeps running.")
         self.assertEqual(mark("/customers voice <a few lines you wrote>: match your writing"),
@@ -40,8 +39,6 @@ class MarkCase(unittest.TestCase):
     def test_a_tip_keeps_its_label_and_its_command(self):
         self.assertEqual(mark("• Your voice: paste a few lines you wrote. /customers voice <text>"),
                          "• **Your voice:** paste a few lines you wrote. `/customers voice <text>`")
-        self.assertEqual(mark("• Preview: write and approve with made-up contacts. /customers demo acme.com"),
-                         "• **Preview:** write and approve with made-up contacts. `/customers demo acme.com`")
         self.assertEqual(mark("• Inbox: connect the email account your outreach will go from. https://leadpoet.com/dashboard/outreach"),
                          "• **Inbox:** connect the email account your outreach will go from. https://leadpoet.com/dashboard/outreach")
 
@@ -59,10 +56,10 @@ class MarkCase(unittest.TestCase):
         self.assertEqual(mark("Back to it: /customers open Acme Rocket"), "Back to it: `/customers open Acme Rocket`")
         self.assertEqual(mark("Open it: /customers open acme.com"), "Open it: `/customers open acme.com`")
         self.assertEqual(mark("Open one: /customers open <site>"), "Open one: `/customers open <site>`")
-        self.assertEqual(mark("(or /customers demo)"), "(or `/customers demo`)")
+        self.assertEqual(mark("(or /customers list)"), "(or `/customers list`)")
 
     def test_text_that_will_be_sent_is_shown_as_it_will_be_sent(self):
-        email = ("Email 1 (today): a quick idea\nHi Marcus,\n\n• Setup: ten minutes.\nLive. It works.\nTry /customers demo yourself.\n\n"
+        email = ("Email 1 (today): a quick idea\nHi Marcus,\n\n• Setup: ten minutes.\nLive. It works.\nTry /customers write yourself.\n\n"
                  "Sam Rivera, Founder at Sunnyday\nsam@sunnyday.example\n\nEmail 2 (3 business days after the last one): one more\n"
                  "Sent to your team yet?\n\nLeadpoet adds your booking link after the sign-off.\n\nApprove these exact emails: /customers approve 8be1")
         shown = mark(email).split("\n")
@@ -75,7 +72,7 @@ class MarkCase(unittest.TestCase):
         self.assertEqual(mark(reply), "**Your reply:**\nLive. Yes, it does.\nRun /desk status any time.\n\n`/desk send 1a2b`\n`/desk skip`")
 
     def test_a_body_line_that_only_begins_like_an_ending_stays_in_the_body(self):
-        email = ("Email 1 (today): one click\nApprove all invoices in one click.\n---- or so\nTry /customers demo yourself.\n\n"
+        email = ("Email 1 (today): one click\nApprove all invoices in one click.\n---- or so\nTry /customers write yourself.\n\n"
                  "Sam Rivera, Founder at Sunnyday\nsam@sunnyday.example\n\n"
                  "Leadpoet adds your booking link, if you've set one, and your legal footer.\n\nLeave them out: /customers skip")
         shown = mark(email).split("\n")
@@ -173,7 +170,7 @@ class RenderCase(unittest.TestCase):
 
 
 class RegisteredCase(unittest.TestCase):
-    """The whole demo through the handlers Hermes calls, typing each code the way a person reads it."""
+    """The whole job through the handlers Hermes calls, typing each code the way a person reads it."""
 
     def setUp(self):
         import tempfile
@@ -184,8 +181,20 @@ class RegisteredCase(unittest.TestCase):
         real = self.entry.Plugin
         self.entry.Plugin = lambda ctx: real(ctx, Path(self.folder.name))
         self.addCleanup(setattr, self.entry, "Plugin", real)
+        self.api = None  # No key is in until a test puts a stand-in Leadpoet here.
+        customers = self.entry.Customers
+        for patcher in (mock.patch.object(self.entry, "get_key", lambda: "k" if self.api else ""),
+                        mock.patch.object(self.entry, "LeadpoetApi", self.leadpoet),
+                        mock.patch.object(self.entry, "Customers", lambda *args, **more: customers(*args, stock.stock_fetch, **more))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.entry.register(self.ctx)
         self.dm = types.SimpleNamespace(chat_type="dm", user_id="1")
+
+    def leadpoet(self, _key):
+        if self.api is None:
+            raise AssertionError("No key is in, so nothing may reach Leadpoet.")
+        return self.api
 
     def say(self, name, args, platform="telegram"):
         return self.ctx.commands[name](args, platform=platform, source=self.dm, session_id="s", session_key="k")
@@ -197,35 +206,34 @@ class RegisteredCase(unittest.TestCase):
         with mock.patch.object(self.entry, "render", side_effect=RuntimeError("boom")), self.assertLogs(level="ERROR"):
             self.assertIn("/customers", self.say("customers", "help"))
 
-    def test_the_demo_runs_end_to_end_with_styled_replies(self):
-        self.ctx.llm = stock.DemoLlm()
-        shown = self.say("customers", "demo sunnyday.example")
+    def test_the_job_runs_end_to_end_with_styled_replies(self):
+        self.ctx.llm, self.api = stock.StockLlm(), stock.StockApi()
+        shown = self.say("customers", "sunnyday.example")
         self.assertIn("**Sunnyday**", shown)
         shown = self.say("customers", "go " + self.code(shown, "/customers go"))
+        shown = self.say("customers", "")
         self.assertIn("**3 verified contacts are in.**", shown)
         self.assertIn("• **Tallgrass Couriers:** Matches your profile.", shown)
         shown = self.say("customers", "write")
         self.assertIn("**Personal line:**", shown)
         shown = self.say("customers", "all")
         shown = self.say("customers", "all " + self.code(shown, "/customers all"))
-        self.assertIn("Demo finished", shown)
+        self.assertIn("**Live.**", shown)
+        self.ctx.llm, self.api = FakeLlm(), FakeApi([task()])
         shown = self.say("desk", "")
-        self.assertIn("**Marcus Oyelaran, Pinecrest Group**", shown)
-        self.assertIn("> This is timely.", shown)
+        self.assertIn("**Ana Ruiz, Acme**", shown)
+        self.assertIn("> What does it cost?", shown)
         shown = self.say("desk", "send " + self.code(shown, "/desk send"))
-        self.assertIn("**Sent to Marcus Oyelaran, Pinecrest Group.**", shown)
+        self.assertIn("**Sent to Ana Ruiz, Acme.**", shown)
 
     def test_with_no_key_each_command_says_how_to_add_one(self):
-        real = self.entry.get_key
-        self.entry.get_key = lambda: ""
-        self.addCleanup(setattr, self.entry, "get_key", real)
         desk = self.say("desk", "")
         self.assertIn("https://leadpoet.com/dashboard/account?section=integrations", desk)
         self.assertIn("`hermes config set LEADPOET_API_KEY <your key>`", desk)
-        self.assertIn("`/desk demo`", desk)
-        self.assertIn("`/customers demo yoursite.com`", self.say("customers", ""))
+        self.assertIn("`/customers yoursite.com`", desk)
+        self.assertIn("`/customers yoursite.com`", self.say("customers", ""))
 
     def test_a_terminal_session_reads_the_same_words(self):
-        self.ctx.llm = stock.DemoLlm()
-        styled, written = self.say("customers", "demo sunnyday.example", platform="telegram"), self.say("customers", "", platform="tui")
-        self.assertEqual(plain(styled).split("\n\n", 1)[1], written)
+        self.ctx.llm = stock.StockLlm()
+        styled, written = self.say("customers", "sunnyday.example", platform="telegram"), self.say("customers", "", platform="tui")
+        self.assertEqual(plain(styled), written)

@@ -97,12 +97,6 @@ class Store:
                 "name=:name, company=:company, classification=:classification, urgent=:urgent, received_at=:received_at, "
                 "inbound_id=:inbound_id, inbound_text=:inbound_text WHERE task_id=:task_id AND state='closed'", item)
 
-    def reset_replies(self) -> None:
-        """Empty the demo's replies but keep the rest of the demo, such as a /customers walk-through."""
-        with self._lock, self._db:
-            self._db.execute("DELETE FROM items")
-            self._db.execute("DELETE FROM kv WHERE key='current'")
-
     def update(self, task_id: str, **fields: Any) -> None:
         columns = ",".join(f"{name}=?" for name in fields)
         with self._lock, self._db:
@@ -121,12 +115,6 @@ class Store:
                 "SELECT * FROM items WHERE state IN ('new','unknown') "
                 "ORDER BY skipped ASC, urgent DESC, received_at ASC").fetchall()
         return [dict(row) for row in rows]
-
-    def reset(self) -> None:
-        """Empty this file's replies. Only the demo uses this, on its own fictional data."""
-        with self._lock, self._db:
-            self._db.execute("DELETE FROM items")
-            self._db.execute("DELETE FROM kv")
 
     def all_task_ids(self) -> list[str]:
         with self._lock:

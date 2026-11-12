@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from leadpoet_plugin.api import ApiError
 from leadpoet_plugin.brief import description, product_text, write_brief
 from leadpoet_plugin.customers import Customers, affordable_companies
-from stock import DemoCustomersApi, DemoLlm, SELLER, demo_fetch
+from stock import StockApi, StockLlm, SELLER, stock_fetch
 from leadpoet_plugin.store import Store
 from leadpoet_plugin.website import Page, Scan
 from leadpoet_plugin.brief import validate_brief
@@ -18,10 +18,8 @@ from leadpoet_plugin.website import SiteError, _hidden_classes
 from leadpoet_plugin.writer import line_is_supported, render, research_person, validate_lines, validate_sequence, write_sequence
 
 
-class Api(DemoCustomersApi):
-    """The demo's Leadpoet, with switches for what goes wrong and a record of every write."""
-
-    demo = False
+class Api(StockApi):
+    """The stand-in Leadpoet, with switches for what goes wrong and a record of every write."""
 
     def __init__(self, credits_left=100):
         super().__init__()
@@ -41,7 +39,7 @@ class Api(DemoCustomersApi):
             if len(body[field]) > 500:
                 raise ApiError("Lead request fields must be 500 characters or fewer", 400, code="lead_request_field_too_long")
         self.requests.append(body)
-        return {"query_id": "demo-find", "icp_id": "icp-1", "credits_remaining": 0}
+        return {"query_id": "find-1", "icp_id": "icp-1", "credits_remaining": 0}
 
     def get_request(self, query_id):
         return {"status": self.state, "progress": {"state": "ready" if self.state == "completed" else "working"}}
@@ -74,7 +72,7 @@ class Case(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.api = Api()
         self.store = Store(Path(self.tmp.name) / "a.db")
-        self.customers = Customers(self.api, self.store, DemoLlm(), demo_fetch)
+        self.customers = Customers(self.api, self.store, StockLlm(), stock_fetch)
         self.start()
 
     def start(self):
@@ -248,13 +246,13 @@ class FindCase(Case):
         self.assertIn(f"/customers go {go}", text)  # The way back for someone whose free credits are spent.
         self.assertEqual(self.api.requests, [])
         self.api.app_requests = [{"id": "old", "created_at": "2020-01-01T00:00:00Z"},
-                                 {"id": "demo-find", "created_at": "2099-01-01T00:00:00Z", "icp_id": "icp-1",
+                                 {"id": "find-1", "created_at": "2099-01-01T00:00:00Z", "icp_id": "icp-1",
                                   "request_description": description(self.customers.job()["brief"])}]
         self.customers.advance()
-        self.assertEqual(self.customers.job()["query_id"], "demo-find")
+        self.assertEqual(self.customers.job()["query_id"], "find-1")
 
     def test_no_key_shows_the_free_offer(self):
-        customers = Customers(None, Store(Path(self.tmp.name) / "b.db"), DemoLlm(), demo_fetch)
+        customers = Customers(None, Store(Path(self.tmp.name) / "b.db"), StockLlm(), stock_fetch)
         text = customers.start(SELLER)
         self.assertIn("It takes a free Leadpoet account.", text)
         code = text.split("/customers go ")[1].split()[0]
@@ -265,7 +263,7 @@ class FindCase(Case):
             self.assertIn(needed, steps)
 
     def test_a_key_added_after_the_offer_is_checked_before_it_is_welcomed(self):
-        customers = Customers(None, Store(Path(self.tmp.name) / "c.db"), DemoLlm(), demo_fetch)
+        customers = Customers(None, Store(Path(self.tmp.name) / "c.db"), StockLlm(), stock_fetch)
         code = customers.start(SELLER).split("/customers go ")[1].split()[0]
         customers.handle("go", code)
         customers.api = self.api
@@ -439,10 +437,10 @@ class LaunchCase(Case):
         self.assertNotIn("next email", self.customers.handle("", ""))
         self.api.queued_messages = lambda: [
             {"lead_id": "someone-else", "display_state": "scheduled", "scheduled_for": at(5)},
-            {"lead_id": "demo-marcus", "display_state": "sent", "scheduled_for": at(10)},
-            {"lead_id": "demo-priya", "display_state": "scheduled", "scheduled_for": at(181)}]
+            {"lead_id": "lead-marcus", "display_state": "sent", "scheduled_for": at(10)},
+            {"lead_id": "lead-priya", "display_state": "scheduled", "scheduled_for": at(181)}]
         self.assertIn("The next email goes out in about 3 hours.", self.customers.handle("", ""))
-        self.api.queued_messages = lambda: [{"lead_id": "demo-priya", "display_state": "queued", "scheduled_for": at(-15)}]
+        self.api.queued_messages = lambda: [{"lead_id": "lead-priya", "display_state": "queued", "scheduled_for": at(-15)}]
         self.assertIn("The next email is due now.", self.customers.handle("", ""))
         def broken():
             raise ApiError("down", 503)
@@ -465,7 +463,7 @@ class LaunchCase(Case):
         self.to_review()
         self.customers.handle("approve", self.code("approve"))
         self.assertEqual(self.api.approved, ["draft-campaign-1"])
-        self.api._drafts["changed"] = {"id": "changed", "lead_id": "demo-marcus", "can_approve": True,
+        self.api._drafts["changed"] = {"id": "changed", "lead_id": "lead-marcus", "can_approve": True,
                                        "rendered_subject": "x", "rendered_body": "A different email."}
         self.assertIn("doesn't match", self.customers.advance())
         self.assertNotIn("changed", self.api.approved)
@@ -473,7 +471,7 @@ class LaunchCase(Case):
     def test_a_draft_the_server_will_not_approve_is_left_alone(self):
         self.to_review()
         self.customers.handle("approve", self.code("approve"))
-        draft = {"id": "d2", "lead_id": "demo-marcus", "can_approve": False,
+        draft = {"id": "d2", "lead_id": "lead-marcus", "can_approve": False,
                  "rendered_subject": "the next shift", "rendered_body": self.people()["Marcus"]["touches"][1]["body"]}
         self.api._drafts["d2"] = draft
         self.customers.advance()
@@ -494,7 +492,7 @@ class LaunchCase(Case):
     def test_work_survives_a_restart(self):
         self.to_review()
         code = self.code("approve")
-        restarted = Customers(self.api, Store(Path(self.tmp.name) / "a.db"), DemoLlm(), demo_fetch)
+        restarted = Customers(self.api, Store(Path(self.tmp.name) / "a.db"), StockLlm(), stock_fetch)
         restarted.handle("approve", code)
         self.assertEqual(restarted.job()["people"][0]["state"], "launched")
 
@@ -1059,8 +1057,8 @@ class ProofCase(unittest.TestCase):
 class TwoWorkspacesCase(unittest.TestCase):
     def test_jobs_never_mix(self):
         with tempfile.TemporaryDirectory() as tmp:
-            first = Customers(Api(), Store(Path(tmp) / "one.db"), DemoLlm(), demo_fetch)
-            second = Customers(Api(), Store(Path(tmp) / "two.db"), DemoLlm(), demo_fetch)
+            first = Customers(Api(), Store(Path(tmp) / "one.db"), StockLlm(), stock_fetch)
+            second = Customers(Api(), Store(Path(tmp) / "two.db"), StockLlm(), stock_fetch)
             first.start(SELLER)
             self.assertIsNone(second.job())
             self.assertIn("/customers yoursite.com", second.handle("", ""))
@@ -1072,7 +1070,7 @@ class ProgressTests(unittest.TestCase):
             raise RuntimeError("the chat is gone")
 
         with tempfile.TemporaryDirectory() as folder:
-            customers = Customers(DemoCustomersApi(), Store(Path(folder) / "a.db"), DemoLlm(), demo_fetch, say=broken)
+            customers = Customers(StockApi(), Store(Path(folder) / "a.db"), StockLlm(), stock_fetch, say=broken)
             self.assertIn("/customers go", customers.start(SELLER))
 
 
@@ -1390,7 +1388,7 @@ class SubjectFallbackTests(unittest.TestCase):
         from stock import _SEQUENCE
         from leadpoet_plugin.website import scan_site
         from leadpoet_plugin.writer import check_sequence
-        brief = write_brief(DemoLlm(), scan_site(SELLER, fetcher=demo_fetch))
+        brief = write_brief(StockLlm(), scan_site(SELLER, fetcher=stock_fetch))
         draft = json.loads(json.dumps(_SEQUENCE))
         draft["emails"][0]["subject"] = "Stale rosters"
         self.assertIn("Stale", check_sequence(draft, brief)[1].title())
@@ -1420,10 +1418,10 @@ class SignalOpenerTests(unittest.TestCase):
                          "Ramp is hiring a Head of Outbound.")
 
     def test_the_signal_opens_and_a_site_fact_stands_in_without_one(self):
-        customers = Customers(DemoCustomersApi(), Store(Path(tempfile.mkdtemp()) / "a.db"), DemoLlm(), demo_fetch)
-        lines, _ = research_person(DemoLlm(), {**customers.api.pipeline_contacts(None)[0], "why": "Posted a night dispatcher role on Oct 28 that asks for clean shift handovers."}, demo_fetch)
+        customers = Customers(StockApi(), Store(Path(tempfile.mkdtemp()) / "a.db"), StockLlm(), stock_fetch)
+        lines, _ = research_person(StockLlm(), {**customers.api.pipeline_contacts(None)[0], "why": "Posted a night dispatcher role on Oct 28 that asks for clean shift handovers."}, stock_fetch)
         self.assertEqual([line["url"] for line in lines], [""])
-        lines, _ = research_person(DemoLlm(), customers.api.pipeline_contacts(None)[0], demo_fetch)
+        lines, _ = research_person(StockLlm(), customers.api.pipeline_contacts(None)[0], stock_fetch)
         self.assertEqual([line["url"] for line in lines], ["https://pinecrest-freight.example/"])
 
 
@@ -1439,7 +1437,7 @@ class ManySearchesCase(Case):
         self.customers.handle("go", self.code("go"))  # The first search spends credits and starts finding.
         self.api.credits_left = 100
 
-    class Llm(DemoLlm):
+    class Llm(StockLlm):
         def complete(self, messages, **kwargs):
             result = super().complete(messages, **kwargs)
             page = messages[-1]["content"].split("PAGE ")[1].split()[0].rstrip("/")
@@ -1447,8 +1445,8 @@ class ManySearchesCase(Case):
 
     def fetch(self, url):
         if not url.startswith(self.OTHER):
-            return demo_fetch(url)
-        return url if url.endswith("/") else url + "/", demo_fetch(SELLER)[1]
+            return stock_fetch(url)
+        return url if url.endswith("/") else url + "/", stock_fetch(SELLER)[1]
 
     def test_a_new_site_keeps_the_running_search(self):
         text = self.customers.handle(self.OTHER, "")
@@ -1617,13 +1615,12 @@ class WaitingCase(Case):
         self.assertIn("While you wait:", self.text)
         self.assertIn("• Inbox: connect the email account your outreach will go from. https://leadpoet.com/dashboard/outreach", self.text)
         self.assertIn("• Your voice: paste a few lines you wrote. /customers voice <text>", self.text)
-        self.assertIn(f"/customers demo {self.customers.job()['brief']['domain']}", self.text)
         self.api.senders = ["acct-1"]
         self.customers.handle("voice", "I write short and plain. One idea in each email, then one clear ask.")
         look = self.customers.handle("", "")
         self.assertNotIn("Inbox:", look)
         self.assertNotIn("Your voice:", look)
-        self.assertIn("Preview:", look)
+        self.assertNotIn("While you wait:", look)
 
     def test_a_tip_that_cannot_be_read_never_breaks_the_wait(self):
         self.go()
@@ -1681,10 +1678,10 @@ class WalkFindingsCase(Case):
 
     def test_a_key_added_after_the_offer_shows_the_cost_before_spending(self):
         store = Store(Path(self.tmp.name) / "k.db")
-        keyless = Customers(None, store, DemoLlm(), demo_fetch)
+        keyless = Customers(None, store, StockLlm(), stock_fetch)
         code = keyless.start(SELLER).split("/customers go ")[1].split()[0]
         keyless.handle("go", code)
-        customers = Customers(self.api, store, DemoLlm(), demo_fetch)
+        customers = Customers(self.api, store, StockLlm(), stock_fetch)
         text = customers.handle("go", code)
         self.assertIn("Cost: 100 credits", text)
         self.assertEqual(self.api.requests, [])
@@ -1693,9 +1690,9 @@ class WalkFindingsCase(Case):
 
     def test_a_key_added_while_waiting_moves_on(self):
         store = Store(Path(self.tmp.name) / "w.db")
-        keyless = Customers(None, store, DemoLlm(), demo_fetch)
+        keyless = Customers(None, store, StockLlm(), stock_fetch)
         keyless.handle("go", keyless.start(SELLER).split("/customers go ")[1].split()[0])
-        self.assertIn("Your key is in", Customers(self.api, store, DemoLlm(), demo_fetch).handle("", ""))
+        self.assertIn("Your key is in", Customers(self.api, store, StockLlm(), stock_fetch).handle("", ""))
 
     def test_codes_typed_with_capitals_still_work(self):
         self.customers.handle("go", self.code("go").upper())
@@ -1732,7 +1729,7 @@ class WalkFindingsCase(Case):
 
     def test_a_stranding_balance_is_explained_before_go(self):
         self.api.credits_left = 150
-        text = Customers(self.api, Store(Path(self.tmp.name) / "s.db"), DemoLlm(), demo_fetch).start(SELLER)
+        text = Customers(self.api, Store(Path(self.tmp.name) / "s.db"), StockLlm(), stock_fetch).start(SELLER)
         self.assertIn("leave 50 credits", text)
         self.assertIn("Add 50 more", text)
 
@@ -1747,7 +1744,7 @@ class WalkFindingsCase(Case):
         self.assertIn("You're on it already", self.customers.handle("open", f"www.{site}"))
 
     def test_no_model_says_so_instead_of_blaming_the_site(self):
-        text = Customers(self.api, Store(Path(self.tmp.name) / "m.db"), None, demo_fetch).start(SELLER)
+        text = Customers(self.api, Store(Path(self.tmp.name) / "m.db"), None, stock_fetch).start(SELLER)
         self.assertIn("model", text)
 
 
@@ -1965,7 +1962,6 @@ class RequestPathFindingsCase(unittest.TestCase):
         text = self.customers(replies=[self.raw(sells_to_businesses=False)]).start("linear.app")
         self.assertIn("sells to consumers", text)
         self.assertIn("/customers about <your text>", text)
-        self.assertNotIn("/customers demo", text)  # A preview needs a buyer too, so it isn't offered here.
 
     def test_the_progress_note_names_the_page_that_was_typed(self):
         notes = []
@@ -2047,7 +2043,7 @@ class BuyerCorrectionCase(Case):
     def setUp(self):
         seen = self.seen = []
 
-        class Llm(DemoLlm):
+        class Llm(StockLlm):
             def complete(self, messages, **kwargs):
                 result = super().complete(messages, **kwargs)
                 said = messages[-1]["content"]
@@ -2059,7 +2055,7 @@ class BuyerCorrectionCase(Case):
                 return SimpleNamespace(text=json.dumps(raw))
 
         super().setUp()
-        self.customers = Customers(self.api, self.store, Llm(), demo_fetch)
+        self.customers = Customers(self.api, self.store, Llm(), stock_fetch)
 
     def test_the_card_says_how_to_name_another_buyer(self):
         self.assertIn("Selling to someone else? Say who: /customers buyer <who buys>\n\nNext, find", self.text)
@@ -2088,7 +2084,7 @@ class BuyerCorrectionCase(Case):
         self.assertIn("Each search is for one kind of buyer.", self.customers.handle("", ""))
 
     def test_it_works_until_leadpoet_has_been_asked(self):
-        self.customers = Customers(None, self.store, self.customers.llm, demo_fetch)
+        self.customers = Customers(None, self.store, self.customers.llm, stock_fetch)
         self.assertIn("free Leadpoet account", self.customers.handle("go", self.code("go")))
         self.assertEqual(self.customers.job()["stage"], "needs_key")
         self.assertIn("US banks that staff engineering", self.customers.handle("buyer", self.WHO))
@@ -2136,9 +2132,4 @@ class BuyerCorrectionCase(Case):
         self.assertIn("/customers go ", card)
         self.assertNotIn("/customers buyer", card)
         self.assertIn("/customers about <your text>", self.customers.handle("buyer", self.WHO))
-
-    def test_the_demo_keeps_its_card(self):
-        demo = Customers(DemoCustomersApi(), Store(Path(self.tmp.name) / "d.db"), DemoLlm(), demo_fetch)
-        self.assertNotIn("/customers buyer", demo.start(SELLER))
-        self.assertIn("The demo keeps the buyer", demo.handle("buyer", self.WHO))
 

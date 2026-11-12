@@ -44,8 +44,6 @@ def _server_error(raw: bytes) -> tuple[str, str, dict]:
 
 
 class LeadpoetApi:
-    demo = False
-
     def __init__(self, api_key: str, base_url: str = BASE_URL, timeout: float = TIMEOUT_SECONDS):
         self._key = api_key
         self._base = base_url.rstrip("/")

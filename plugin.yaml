@@ -1,6 +1,6 @@
 name: leadpoet
-version: "0.2.20"
-description: Run /customers yoursite.com and get verified contacts, emails where every personal line shows its source, approval from your phone, and replies you can answer in chat. Try /customers demo yoursite.com with no account.
+version: "0.2.21"
+description: Run /customers yoursite.com and get verified contacts, emails where every personal line shows its source, approval from your phone, and replies you can answer in chat. The first look at who buys from you needs no account.
 author: Leadpoet
 license: MIT
 homepage: https://leadpoet.com
@@ -21,7 +21,7 @@ config_schema:
     type: secret
     env: LEADPOET_API_KEY
     label: Leadpoet API key
-    description: "Create one at leadpoet.com/dashboard/account?section=integrations (Developer, API keys, Select all), then run 'hermes config set LEADPOET_API_KEY <your key>'. Not needed for /customers demo."
+    description: "Create one at leadpoet.com/dashboard/account?section=integrations (Developer, API keys, Select all), then run 'hermes config set LEADPOET_API_KEY <your key>'."
     required: false
   allowed_user_ids:
     type: list

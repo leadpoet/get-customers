@@ -16,11 +16,10 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from leadpoet_plugin.api import ApiError, LeadpoetApi  # noqa: E402
-from leadpoet_plugin.demo import DemoApi  # noqa: E402
 from leadpoet_plugin.desk import Desk, clean_draft, draft_code  # noqa: E402
 from leadpoet_plugin.poll import run  # noqa: E402
 from leadpoet_plugin.store import Store  # noqa: E402
-import stock  # noqa: E402  The tests' made-up seller and its freight prospects.
+import stock  # noqa: E402  The tests' made-up seller, its freight prospects and a stand-in Leadpoet.
 
 NOW = datetime(2026, 11, 9, 12, 0, tzinfo=timezone.utc)
 
@@ -36,8 +35,6 @@ def task(task_id="t1", **over):
 
 
 class FakeApi:
-    demo = False
-
     def __init__(self, tasks):
         self.tasks = tasks
         self.inbound = {t["enrollment_id"]: ("m1", "What does it cost?") for t in tasks}
@@ -373,15 +370,6 @@ class DeskCase(unittest.TestCase):
             self.assertEqual(desk_a.current()["name"], "Ana Ruiz")
             self.assertEqual(desk_b.current()["name"], "Bo Lin")
 
-    def test_demo_runs_without_network_or_model(self):
-        with tempfile.TemporaryDirectory() as folder:
-            api = DemoApi(NOW)
-            desk = Desk(api, Store(Path(folder) / "d.db"), None, now=lambda: NOW)
-            desk.sync()
-            self.assertIn("Marcus", desk.show())
-            desk.send(self.code(desk))
-            self.assertEqual(len(api.sent), 1)
-
 
 class DeskWalkFindingsCase(unittest.TestCase):
     """Holes found by walking the desk with real code and fakes."""
@@ -391,11 +379,12 @@ class DeskWalkFindingsCase(unittest.TestCase):
     def test_opt_outs_in_other_words_get_no_draft(self):
         for words in ("Please stop reaching out.", "stop please", "Unsubscribed.", "Never contact me again.",
                       "No more emails please.", "Kindly cease all further emails."):
-            api, desk = self.make([task(classification="ambiguous")])
+            api = FakeApi([task(classification="ambiguous")])
             api.inbound["e-t1"] = ("m1", words)
-            desk.store.reset_replies()
-            desk.sync()
-            shown = desk.show()
+            with tempfile.TemporaryDirectory() as folder:
+                desk = Desk(api, Store(Path(folder) / "d.db"), FakeLlm(), now=lambda: NOW)
+                desk.sync()
+                shown = desk.show()
             self.assertNotIn("/desk send", shown, words)
 
     def test_stop_by_is_not_an_opt_out(self):
@@ -536,22 +525,25 @@ def load_entry():
 
 
 class PluginCase(unittest.TestCase):
-    def make(self, config=None):
+    def make(self, config=None, api=None):
+        """A plugin that can't reach Leadpoet. With no `api` there is no key; with one, that stand-in answers."""
         self.entry = load_entry()
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
-        ctx = FakeCtx(config)
-        self.plugin = self.entry.Plugin(ctx, Path(self.folder.name))
+        customers = self.entry.Customers
+
+        def leadpoet(_key):
+            if api is None:
+                raise AssertionError("No key is in, so nothing may reach Leadpoet.")
+            return api
+
+        for patcher in (mock.patch.object(self.entry, "get_key", return_value="k" if api else ""),
+                        mock.patch.object(self.entry, "LeadpoetApi", leadpoet),
+                        mock.patch.object(self.entry, "Customers", lambda *args, **more: customers(*args, stock.stock_fetch, **more))):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.plugin = self.entry.Plugin(FakeCtx(config), Path(self.folder.name))
         return self.plugin
-
-    def touring(self):
-        """A plugin whose model answers for the tests' made-up seller, so a demo can be walked without a real model."""
-        plugin = self.make()
-        plugin.ctx.llm = stock.DemoLlm()
-        return plugin
-
-    def tour(self, plugin):
-        return plugin.customers_command("demo sunnyday.example", platform="telegram", source=self.dm())
 
     def dm(self):
         return types.SimpleNamespace(chat_type="dm", user_id="1")
@@ -559,170 +551,25 @@ class PluginCase(unittest.TestCase):
     def group(self, user="2"):
         return types.SimpleNamespace(chat_type="group", user_id=user)
 
-    def test_what_ships_names_no_seller_and_no_trade(self):
-        """The preview is of the user's own company, so the made-up prospects must fit any of them."""
-        from leadpoet_plugin.website import SiteError
-        self.assertEqual([row["company"] for row in stock.SHIPPED_PEOPLE],
-                         ["Pinecrest Group", "Harbor Lane Partners", "Tallgrass Associates"])
-        self.assertFalse(any("icp_details" in row for row in stock.SHIPPED_PEOPLE))
-        self.assertEqual(len(stock.SHIPPED_PAGES), 3)
-        self.assertTrue(all(url.endswith(".example/") for url in stock.SHIPPED_PAGES))
-        shipped = " ".join(stock.SHIPPED_PAGES.values()) + json.dumps(stock.SHIPPED_PEOPLE)
-        for word in ("Sunnyday", "freight", "Freight", "courier", "dispatch"):
-            self.assertNotIn(word, shipped)
-        self.assertIn("Pinecrest Group", stock.demo_fetch("https://pinecrestgroup.example")[1])
-        with self.assertRaises(SiteError):  # A made-up address that isn't in the demo is never looked up for real.
-            stock.demo_fetch("https://nobody.example/")
-        plugin = self.make()
-        plugin.command("demo", platform="telegram", source=self.dm())
-        self.assertEqual(plugin.customers().api.profile()["profile"]["voice"]["sender_name"], "")
-
-    def test_the_demo_asks_for_a_site_when_there_is_no_search(self):
-        plugin = self.make()
-        said = plugin.customers_command("demo", platform="telegram", source=self.dm())
-        self.assertEqual(said, "Add your site to preview it with made-up contacts: /customers demo yoursite.com")
-        self.assertFalse(plugin.in_demo())
-        self.assertEqual(plugin.ctx.llm.calls, [])
-
-    def test_the_demo_with_no_site_previews_the_search_they_have(self):
-        plugin = self.make()
-        brief = {"product_name": "Ntiva", "domain": "ntiva.example", "summary": "Ntiva runs IT for firms.", "buyers": ["Managing Partner"],
-                 "company_fit": "US law firms with 20 to 200 staff.", "company_sizes": [], "countries": [], "exclude": [],
-                 "signals": [], "facts": [{"text": "Ntiva runs IT.", "said_by": "seller", "quote": "Ntiva runs IT.", "url": "https://ntiva.example/"}]}
-        real = {"id": "abcd12345678", "stage": "finding", "people": [], "emails": None, "created_at": 1.0, "brief": brief, "typed": "ntiva.example"}
-        plugin._store("live").put("customers_job", json.dumps(real))
-        with mock.patch.object(self.entry, "get_key", return_value=""):
-            said = plugin.customers_command("demo", platform="telegram", source=self.dm())
-        self.assertTrue(said.startswith("Demo mode: this is your own search. The prospects are made up, so nothing can reach anyone.\n"
-                                        "Your real search keeps running. Back to it any time: /customers demo off"), said)
-        self.assertIn("US law firms with 20 to 200 staff.", said)
-        self.assertEqual(plugin.ctx.llm.calls, [])  # Nothing was read or written again.
-        self.assertEqual(json.loads(plugin._store("live").get("customers_job"))["stage"], "finding")
-
-    def test_a_site_that_cannot_be_read_leaves_no_demo_behind(self):
-        """Typed as the help shows it, the example address used to leave them in an empty demo that refused their real site."""
-        plugin = self.make()
-        said = plugin.customers_command("demo yoursite.com", platform="telegram", source=self.dm())
-        self.assertEqual(said, "That's the example address. Put your own website in its place.")
-        self.assertFalse(plugin.in_demo())
-        # A desk demo that was already open stays open.
-        plugin.command("demo", platform="telegram", source=self.dm())
-        plugin.customers_command("demo yoursite.com", platform="telegram", source=self.dm())
-        self.assertTrue(plugin.in_demo())
-
-    def test_the_demo_needs_a_model_and_says_so(self):
-        plugin = self.make()
-        plugin.ctx.llm = None
-        said = plugin.customers_command("demo acme.example", platform="telegram", source=self.dm())
-        self.assertEqual(said, self.entry.NO_MODEL)
-        self.assertFalse(plugin.in_demo())
-
     def test_buyer_is_a_command_not_a_site_to_read(self):
         plugin = self.make()
-        with mock.patch.object(self.entry, "get_key", return_value=""):
-            text = plugin.customers_command("buyer banks in the US", platform="telegram", source=self.dm())
-        self.assertIn("Start with /customers yoursite.com", text)
-        plugin.command("demo", platform="telegram", source=self.dm())
-        self.assertIn("The demo keeps the buyer", plugin.customers_command("Buyer banks in the US", platform="telegram", source=self.dm()))
+        for typed in ("buyer banks in the US", "Buyer banks in the US"):
+            self.assertIn("Start with /customers yoursite.com", plugin.customers_command(typed, platform="telegram", source=self.dm()))
 
-    def test_the_demo_of_your_own_search_shows_its_card_not_a_second_reading(self):
-        """Ntiva's real search was for US law firms. Its preview read the site again and came back with government contractors."""
+    def test_the_first_look_needs_no_key(self):
         plugin = self.make()
-        brief = {"product_name": "Ntiva", "domain": "ntiva.example", "summary": "Ntiva runs IT for firms.", "buyers": ["Managing Partner"],
-                 "company_fit": "US law firms with 20 to 200 staff.", "company_sizes": [], "countries": [], "exclude": [],
-                 "signals": [], "facts": [{"text": "Ntiva runs IT.", "said_by": "seller", "quote": "Ntiva runs IT.", "url": "https://ntiva.example/"}]}
-        real = {"id": "abcd12345678", "stage": "finding", "people": [], "emails": None, "created_at": 1.0, "brief": brief,
-                "typed": "ntiva.example", "voice_sample": "I write short. " * 5}
-        plugin._store("live").put("customers_job", json.dumps(real))
-        with mock.patch.object(self.entry, "get_key", return_value=""):
-            text = plugin.customers_command("demo https://www.ntiva.example/", platform="telegram", source=self.dm())
-            self.assertIn("US law firms with 20 to 200 staff.", text)
-            self.assertEqual(plugin.ctx.llm.calls, [])  # Nothing was read or written again.
-            demo = json.loads(plugin._store("demo").get("customers_job"))
-            self.assertEqual((demo["stage"], demo["voice_sample"]), ("scanned", real["voice_sample"]))
-            code = text.split("/customers go ")[1].split()[0]
-            self.assertIn("The demo skips the wait", plugin.customers_command(f"go {code}", platform="telegram", source=self.dm()))
-            plugin.customers_command("demo off", platform="telegram", source=self.dm())
-            # A demo code typed after leaving the demo spends nothing on the real search.
-            self.assertEqual(json.loads(plugin._store("live").get("customers_job"))["stage"], "finding")
-            self.assertNotEqual(plugin.customers()._brief_code(real), code)
+        plugin.ctx.llm = stock.StockLlm()
+        shown = plugin.customers_command("sunnyday.example", platform="telegram", source=self.dm())
+        self.assertIn("Sunnyday", shown)
+        code = shown.split("/customers go ")[1].split()[0]
+        asked = plugin.customers_command(f"go {code}", platform="telegram", source=self.dm())
+        self.assertIn("hermes config set LEADPOET_API_KEY <your key>", asked)
 
-    def test_demo_on_your_own_site_has_prospects_that_fit_your_search(self):
-        from leadpoet_plugin.brief import signals_text
-        from leadpoet_plugin.customers import account_note
-        plugin = self.make()
-        plugin.command("demo", platform="telegram", source=self.dm())
-        stock = plugin.customers().api.pipeline_contacts(None)
-        self.assertEqual(stock[0]["role"], "VP Operations")
-        self.assertIn("night dispatcher", stock[0]["icp_details"])
-        brief = {"product_name": "Jani-King", "domain": "janiking.example", "buyers": ["Facilities Manager", "Property Manager"],
-                 "signals": [{"source": "job_postings", "description": "Posted a Facilities Manager role to oversee an outsourced "
-                              "janitorial contractor. Source: LinkedIn Jobs posting, past 30 days"}]}
-        store = plugin._store("demo")
-        store.put("customers_job", json.dumps({"id": "abcd12345678", "stage": "scanned", "people": [], "emails": None,
-                                               "created_at": 1.0, "brief": brief}))
-        people = plugin.customers().api.pipeline_contacts(None)
-        self.assertEqual([row["role"] for row in people], ["Facilities Manager", "Property Manager", "Facilities Manager"])
-        self.assertEqual(people[0]["icp_details"], "Posted a Facilities Manager role to oversee an outsourced janitorial contractor, on Oct 28.")
-        self.assertEqual([row["name"] for row in people], [row["name"] for row in stock])
-        self.assertNotIn("icp_details", people[1])
-        # The reason is shown: it is not a copy of what the request asked for.
-        asked = {"intent_signals": signals_text(brief)}
-        self.assertEqual(account_note(people[0]["icp_details"], asked), people[0]["icp_details"])
-
-    def test_leaving_the_demo_returns_to_the_real_search(self):
-        plugin = self.make()
-        self.assertIn("Start for real", plugin.customers_command("demo off", platform="telegram", source=self.dm()))
-        waiting = {"id": "abcd12345678", "stage": "needs_key", "people": [], "emails": None, "created_at": 1.0,
-                   "brief": {"product_name": "Acme", "domain": "acme.example"}}
-        plugin._store("live").put("customers_job", json.dumps(waiting))
-        plugin.ctx.llm = stock.DemoLlm()
-        intro = self.tour(plugin)
-        self.assertIn("Your real search is saved. Back to it any time: /customers demo off", intro)
-        code = intro.split("/customers go ")[1].split()[0]
-        plugin.customers_command(f"go {code}", platform="telegram", source=self.dm())
-        plugin.customers_command("write", platform="telegram", source=self.dm())
-        shown = plugin.customers_command("all", platform="telegram", source=self.dm())
-        done = plugin.customers_command("all " + shown.split("/customers all ")[1].split()[0], platform="telegram", source=self.dm())
-        self.assertTrue(done.startswith("Demo finished"), done)
-        self.assertTrue(done.endswith("Back to your real search: /customers demo off"), done)
-        with mock.patch.object(self.entry, "get_key", return_value=""):
-            back = plugin.customers_command("demo off", platform="telegram", source=self.dm())
-        self.assertTrue(back.startswith("Demo off. Back to your real search."), back)
-        self.assertIn("Finding real contacts takes a free Leadpoet account.", back)
-
-    def test_news_that_arrives_during_the_demo_says_how_to_get_back(self):
-        from leadpoet_plugin import poll
-        plugin = self.make()
-        store = plugin._store("live")
-        printed = []
-        class News:
-            def __init__(self, *_a, **_k): pass
-            def advance(self): return "3 verified contacts are in."
-        class Quiet:
-            def __init__(self, *_a, **_k): self.store = store
-            def sync(self): pass
-            def alert_text(self): return ""
-        with mock.patch.object(poll, "get_key", return_value="k"), mock.patch.object(poll, "LeadpoetApi"), \
-                mock.patch.object(poll, "Store", return_value=store), mock.patch.object(poll, "data_dir", return_value=Path(self.folder.name)), \
-                mock.patch.object(poll, "Customers", News), mock.patch.object(poll, "Desk", Quiet), \
-                mock.patch("builtins.print", lambda *a, **k: printed.append(a[0])):
-            poll.main()
-            store.put("demo", "1")
-            poll.main()
-        self.assertEqual(printed[0], "3 verified contacts are in.")
-        self.assertIn("Back to your real search: /customers demo off", printed[1])
-
-    def test_the_desk_demo_keeps_a_customers_demo(self):
-        plugin = self.touring()
-        self.tour(plugin)
-        plugin.command("demo", platform="telegram", source=self.dm())
-        self.assertIsNotNone(plugin.customers().job())
-
-    def test_the_demo_walks_from_go_to_emails(self):
-        plugin = self.touring()
+    def test_the_job_walks_from_a_site_to_emails(self):
+        plugin = self.make(api=stock.StockApi())
+        plugin.ctx.llm = stock.StockLlm()
         dm = self.dm()
-        shown = self.tour(plugin)
+        shown = plugin.customers_command("sunnyday.example", platform="telegram", source=dm)
         code = shown.split("/customers go ")[1].split()[0]
         plugin.customers_command(f"go {code.upper()}", platform="telegram", source=dm)
         self.assertIn("/customers write", plugin.customers_command("", platform="telegram", source=dm))
@@ -749,51 +596,52 @@ class PluginCase(unittest.TestCase):
             self.assertIn(f"- {name}", text)
 
     def test_agent_tool_never_exposes_the_code(self):
-        plugin = self.make()
-        shown = plugin.command("demo", platform="telegram", source=self.dm())
+        plugin = self.make(api=FakeApi([task()]))
+        shown = plugin.command("", platform="telegram", source=self.dm())
         code = shown.split("/desk send ")[1].split()[0]
         output = plugin.tool_current({})
-        self.assertIn("Marcus", output)
+        self.assertIn("Ana Ruiz", output)
         self.assertNotIn(code, output)
         saved = plugin.tool_set_draft({"text": "Different words"})
         self.assertNotIn("code", saved.lower())
 
     def test_agent_edit_cannot_ride_an_old_approval(self):
-        plugin = self.make()
-        shown = plugin.command("demo", platform="telegram", source=self.dm())
+        api = FakeApi([task()])
+        plugin = self.make(api=api)
+        shown = plugin.command("", platform="telegram", source=self.dm())
         code = shown.split("/desk send ")[1].split()[0]
         plugin.tool_set_draft({"text": "Injected text"})
         result = plugin.command(f"send {code}", platform="telegram", source=self.dm())
         self.assertIn("nothing was sent", result)
         self.assertIn("Injected text", result)
-        self.assertEqual(plugin._demo_api.sent, [])
+        self.assertEqual(api.sends, [])
 
-    def test_demo_full_flow_through_the_command(self):
-        plugin = self.make()
-        shown = plugin.command("demo", platform="telegram", source=self.dm())
+    def test_a_reply_is_sent_through_the_command(self):
+        api = FakeApi([task(), task("t2", contact={"lead_id": "l2", "name": "Bo Lin", "company": "Beta"})])
+        plugin = self.make(api=api)
+        shown = plugin.command("", platform="telegram", source=self.dm())
         code = shown.split("/desk send ")[1].split()[0]
         result = plugin.command(f"send {code}", platform="telegram", source=self.dm())
-        self.assertIn("Sent to Marcus", result)
-        self.assertIn("Priya", result)
+        self.assertIn("Sent to Ana Ruiz", result)
+        self.assertIn("Bo Lin", result)
+        self.assertEqual(len(api.sends), 1)
 
-    def test_demo_can_be_restarted(self):
+    def test_with_no_key_the_desk_says_how_to_add_one(self):
         plugin = self.make()
-        first = plugin.command("demo", platform="cli")
-        code = first.split("/desk send ")[1].split()[0]
-        plugin.command(f"send {code}", platform="cli")
-        self.assertIn("Marcus", plugin.command("demo", platform="cli"))
+        for typed in ("", "status", "send abcd"):
+            self.assertEqual(plugin.command(typed, platform="telegram", source=self.dm()), self.entry.SETUP)
 
     def test_group_chat_refused_without_allowlist(self):
         plugin = self.make()
-        self.assertIn("direct message", plugin.command("demo", platform="telegram", source=self.group()))
+        self.assertIn("direct message", plugin.command("", platform="telegram", source=self.group()))
 
     def test_group_chat_allowed_for_listed_user(self):
-        plugin = self.make({"allowed_user_ids": ["2"]})
-        self.assertIn("Marcus", plugin.command("demo", platform="signal", source=self.group("2")))
+        plugin = self.make({"allowed_user_ids": ["2"]}, api=FakeApi([task()]))
+        self.assertIn("Ana Ruiz", plugin.command("", platform="signal", source=self.group("2")))
 
     def test_messaging_without_identity_is_refused(self):
         plugin = self.make()
-        self.assertIn("direct message", plugin.command("demo", platform="telegram", source=None))
+        self.assertIn("direct message", plugin.command("", platform="telegram", source=None))
 
     def test_watch_script_runs_the_check_and_passes_on_its_result(self):
         entry = load_entry()
