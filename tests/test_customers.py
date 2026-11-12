@@ -1373,6 +1373,7 @@ class EvidenceTests(unittest.TestCase):
                 ("15M+ frontline jobs analyzed, an unmatched industrial data set", "Augmentir has 15M+ frontline jobs analyzed, an unmatched industrial data set.",
                  "https://www.augmentir.com/", "Augmentir")):
             self.assertFalse(lines(quote, line, site, company), quote)
+        self.assertFalse(lines("15M+ frontline jobs analyzed", "Augmentir has 15M+ frontline jobs analyzed.", "https://www.augmentir.com/", "Augmentir"))
         # Found in review: a customer's result on a story list, or on a customer-stories page, or quoted without "our".
         result = "Response rates doubled within the first month"
         for url in ("https://acme.com/customer-stories/cortex", "https://acme.com/clients/cortex", "https://acme.com/customers?story=cortex"):
@@ -1699,6 +1700,11 @@ class SignalOpenerTests(unittest.TestCase):
             self.assertEqual(lines, [line], company)
             self.assertNotIn("&amp;", why)
             self.assertTrue(why.startswith(("Vareto", "In", "Augmentir", "Cube")), why)
+        # A note saved before it was tidied still opens as it should read.
+        llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": "Vareto is hiring two SDRs."})))
+        self.assertEqual(signal_opener(llm, {"company": "Vareto", "why": "vareto is hiring two SDRs."})[0][0]["line"], "Vareto is hiring two SDRs.")
+        llm = SimpleNamespace(complete=lambda *a, **k: SimpleNamespace(text=json.dumps({"line": "vareto is hiring two SDRs."})))
+        self.assertEqual(signal_opener(llm, {"company": "Vareto", "why": "vareto is hiring two SDRs."}), ([], 1))
         # Planning to do something is still a guess, and a different word after their name is someone else.
         self.assertEqual(opener("Acme", "https://acme.com", "Acme is planning to open a Denver office.", "Acme is planning to open a Denver office.")[1], [])
         self.assertEqual(opener("Arch Systems", "https://archsys.io", "Arch Capital hired a VP of Sales.", "Arch Capital hired a VP of Sales.")[1], [])

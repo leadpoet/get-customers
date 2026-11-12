@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import html
 import re
 import urllib.parse
 from typing import Any
@@ -162,7 +163,10 @@ _RESULT_TILE = re.compile(r"\W*(?:up\s+to\s+|over\s+|more\s+than\s+|nearly\s+|al
                           r"improvement|growth|lift|uplift|cut|drop|return|roi|better|quicker|cheaper)\b"
                           # "2,000+ hours reclaimed per year" became "Spendflo has 2,000+ hours reclaimed per year", seen live.
                           r"|\W*(?:up\s+to\s+|over\s+|more\s+than\s+|nearly\s+|almost\s+)?[$€£]?\d[\d.,]*\S*\s+(?:[\w-]+\s+){0,3}?"
-                          r"(?:reclaimed|saved|recovered|reduced|eliminated|generated|booked|gained|won|avoided|freed|unlocked)\b", re.IGNORECASE)
+                          r"(?:reclaimed|saved|recovered|reduced|eliminated|generated|booked|gained|won|avoided|freed|unlocked)\b"
+                          # "15M+ frontline jobs analyzed" became "Augmentir has 15M+ frontline jobs analyzed", seen live.
+                          r"|\W*(?:up\s+to\s+|over\s+|more\s+than\s+|nearly\s+|almost\s+)?[$€£]?\d[\d.,]*\S*\s+(?:[\w-]+\s+){0,3}?[a-z]+ed\W*$",
+                          re.IGNORECASE)
 # A tile like "Trusted & Loved by 10,000+ teams" takes is, never has: "Persana AI has Trusted & Loved by" was seen live.
 # A heading's capitals don't belong mid-sentence: "Trumpet is Trusted by 15,000+ revenue teams" and "Machina Labs is Born
 # from SpaceX" were seen live.
@@ -315,6 +319,15 @@ _LEADING_WHEN = re.compile(r"(?:In|On|During|Last|This|Earlier this|Early|Late|M
                            r"(?:,?\s+\d{4})?,\s+(?=[A-Z])")
 
 
+def tidy_note(note: object, company: str = "") -> str:
+    """A note as it should read. Seen live: "hiring SDRs &amp; AEs", and "vareto is hiring" for Vareto."""
+    text = re.sub(r"\s+", " ", html.unescape(str(note or ""))).strip()
+    name = company.strip()
+    if name and text[:len(name)].lower() == name.lower() and text[:len(name)].islower() and not text[len(name):len(name) + 1].isalnum():
+        text = name + text[len(name):]
+    return text
+
+
 def lead_sentence(note: str) -> str:
     """The note's first sentence. Leadpoet's notes open with the event at the company; the rest explains the fit."""
     text = re.sub(r"\s+", " ", str(note or "")).strip()
@@ -445,8 +458,7 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
 
     Only the note's first sentence, the event itself, can open: the rest explains the fit, and a closing "it does not
     show they are evaluating us" is not doubt about the event. Doubt about the evidence anywhere still means no line."""
-    note = re.sub(r"\s+", " ", str(person.get("why") or "")).strip()
-    note = re.sub(r"\s+[—–]\s+", ", ", note)  # Seen live: "hired a VP of Sales — its first — and" could not be restated.
+    note = re.sub(r"\s+[—–]\s+", ", ", tidy_note(person.get("why"), str(person.get("company") or "")))  # Seen live: "hired a VP of Sales — its first — and" could not be restated.
     signal = _sentence(_INFERENCE.split(_LEADING_WHEN.sub("", lead_sentence(note), count=1), 1)[0].rstrip(" ,;"))
     if not signal or _HEDGE.search(_MONTH_MAY.sub("", signal)) or _DOUBT.search(note):  # A guess is not a reason to write.
         return [], 0
@@ -475,7 +487,9 @@ def signal_opener(llm: Any, person: dict) -> tuple[list[dict], int]:
     if not line:
         return [], 0
     # restates_note pins the opening to their name and the rest to Leadpoet's own words; _name_in_note keeps the name theirs.
-    good = (len(line) <= MAX_LINE_CHARS and ":" not in line and bool(_name_in_note(line, company))
+    named = _name_in_note(line, company) or ""
+    own = next((word for word in company.split() if word.lower() != "the"), company)
+    good = (len(line) <= MAX_LINE_CHARS and ":" not in line and own in named  # As they write it: not "vareto is hiring".
             and not _has_forbidden(line, company) and not _PLACEHOLDER.search(line)
             and restates_note(line, signal, company) and line_is_supported(line, signal, {**person, "company": company}))
     return ([{"line": line, "quote": signal, "url": ""}], 0) if good else ([], 1)

@@ -7,7 +7,6 @@ code tied to the exact content. Steps that wait on someone else resume from the 
 from __future__ import annotations
 
 import hashlib
-import html
 import json
 import re
 import threading
@@ -18,7 +17,7 @@ from typing import Any, Callable
 from . import brief as briefs
 from .api import ApiError
 from .website import Page, Scan, SiteError, normalize_site, profile_host, scan_site, typed_site
-from .writer import fits, render, research_person, short_note, write_sequence
+from .writer import fits, render, research_person, short_note, tidy_note, write_sequence
 
 LEAD_ENGINE_URL = "https://leadpoet.com/dashboard/lead-engine"
 OUTREACH_URL = "https://leadpoet.com/dashboard/outreach"
@@ -196,12 +195,7 @@ def account_note(note: object, *requests: dict | None, company: str = "") -> str
              for request in requests for key in ("request_description", "intent_signals")]
     if any(text in part for part in asked):
         return ""
-    # Seen live: "hiring SDRs &amp; AEs" and "vareto is hiring" for Vareto. The note is shown and restated as it should read.
-    text = re.sub(r"\s+", " ", html.unescape(note)).strip()
-    name = company.strip()
-    if name and text[:len(name)].lower() == name.lower() and text[:len(name)].islower() and not text[len(name):len(name) + 1].isalnum():
-        text = name + text[len(name):]
-    return text
+    return tidy_note(note, company)
 
 
 _NOTE_SOURCE = "Source: Leadpoet's research on why they fit"
