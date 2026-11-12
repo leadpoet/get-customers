@@ -736,6 +736,20 @@ class ReviewFindingsCase(Case):
         self.assertTrue(fits(touches))
         self.assertFalse(fits([{"subject": "s", "body": "Hi {role}"}]))
 
+    def test_an_email_names_the_company_the_way_people_say_it(self):
+        from leadpoet_plugin.writer import render
+        emails = [{"subject": "Question for {company}", "body": "Hi {first_name},\n\nWho handles outbound at {company}?"}]
+        said = {"Spekit, Inc.": "Spekit", "Outreach Corporation": "Outreach", "Bill Hicks & Co., Ltd.": "Bill Hicks & Co.",
+                "75way Technologies Pvt. Ltd.": "75way Technologies", "COMPRESSORS UNLIMITED INTERNATIONAL, L.L.C.": "Compressors Unlimited International",
+                "ACE OUTDOOR SERVICES LLC": "ACE Outdoor Services", "NASA FEDERAL CREDIT UNION": "NASA Federal Credit Union",
+                "Instantly AI": "Instantly AI", "22nd Century Group, Inc.": "22nd Century Group", "IBM": "IBM", "Inc.": "Inc.",
+                "Balch & Bingham LLP": "Balch & Bingham", "IMRON Corporation": "IMRON", "IRALOGIX": "IRALOGIX",
+                "DYNICS, Inc.": "DYNICS"}
+        for record, spoken in said.items():
+            touch = render(emails, {"name": "Mark Bell", "company": record}, [], "S")[0]
+            self.assertEqual(touch["subject"], f"Question for {spoken}", record)
+            self.assertTrue(touch["body"].endswith(f"at {spoken}?"), record)
+
     def test_an_empty_subject_is_not_approved(self):
         person = self.launched()
         self.draft(person, rendered_subject="")

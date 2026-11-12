@@ -503,10 +503,32 @@ def first_name(person: dict) -> str:
     return parts[0] if parts else "there"
 
 
+# Only legal forms. "Group", "Co." and "AI" can be part of how people say the name ("Instantly AI", "Smith & Co.").
+_LEGAL_FORM = re.compile(r"[,\s]+(?:inc|incorporated|l\.?l\.?c|ltd|limited|corp|corporation|plc|l\.?l\.?p|l\.?p|gmbh|pvt|pty|b\.?v|s\.?a)\.?$",
+                         re.IGNORECASE)
+
+
+def spoken_company(company: str) -> str:
+    """The name as a person writes it in an email: "Spekit" for Spekit, Inc., "Ace Outdoor Services" for ACE OUTDOOR
+    SERVICES LLC. A quarter of real records carry a legal form, and "Who handles outbound at Spekit, Inc.?" reads as
+    a mail merge. In a name written all in capitals, words of five or more letters are recased; shorter ones may be
+    acronyms. A one-word name like IRALOGIX, or IMRON in "IMRON Corporation", is how they style it, so it stays."""
+    name = re.sub(r"\s+", " ", str(company or "")).strip()
+    shorter = name
+    while (cut := _LEGAL_FORM.sub("", shorter).rstrip(" ,")) and cut != shorter:
+        shorter = cut
+    if re.search(r"(?:&|\band)$", shorter, re.IGNORECASE):  # "Slagle Roofing & Sons" style names lose a part.
+        shorter = name
+    if name.isupper() and " " in shorter:
+        shorter = re.sub(r"\b[A-Z]{5,}\b", lambda word: word.group().capitalize(), shorter)
+    return shorter or name
+
+
 def render(emails: list[dict], person: dict, lines: list[dict], sender: str) -> list[dict]:
     """Fill in one person's emails. With no sourced line, the paragraph is removed."""
     values = {name: re.sub(r"[—–]", "-", value) for name, value in {
-        "{first_name}": first_name(person), "{company}": str(person.get("company") or "your team"), "{sender}": sender}.items()}
+        "{first_name}": first_name(person), "{company}": spoken_company(person.get("company")) or "your team",
+        "{sender}": sender}.items()}
     touches = []
     for index, email in enumerate(emails):
         subject, body = email["subject"], email["body"]
