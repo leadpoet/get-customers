@@ -420,24 +420,57 @@ _TITLES = frozenset({"new", "interim", "acting", "incoming", "founding", "global
 _DEPARTMENTS = frozenset("sales revenue growth marketing partnerships operations ops revops engineering product people finance "
                          "customer customers success business gtm strategy technology staff ai design talent recruiting hr data "
                          "demand communications comms security it legal brand content procurement research enterprise".split())
+# Red team, run 50: "CEO, Jane Doe, and Stripe said", "CEO, Jane Doe, until 2021", "founder, previously Toast, said".
+_NOT_NAMES = frozenset("the a an until through before after since prior previously formerly once earlier then with for from to "
+                       "in on by who which while when leaving departing joining joined left veteran member chair partner "
+                       "principal observer advisor adviser coach firm search recruiting employer speaking "
+                       # Red team round 2, run 50: "plus Toast", "Toast chairman Wu", "onetime Toast exec".
+                       "plus alongside versus vs or like as against besides including under without not but "
+                       "chairman chairwoman gp lp angel spokesperson alum exec executive boss onetime erstwhile".split())
 _COMPANY_WORDS = frozenset({"of", "at", "from", "inc", "corp", "llc", "ltd", "labs", "co", "company", "group", "holdings",
                             "ventures", "capital", "now"})
 
 
-def _subject(words: list[str], at: int) -> list[str] | None:
+def _subject(words: list[str], at: int, span: int = 7) -> list[str] | None:
     """The words after "Zuma's" up to the verb: "POS maker" in "Zuma's POS maker raised", "AI phone answering" in
     "Popmenu's AI phone answering now handles". None when no verb comes within six words."""
-    for end in range(at, min(len(words), at + 7)):
+    for end in range(at, min(len(words), at + span)):
         word = words[end]
         if word in _OWN_PRODUCTS or word in _OWN_PARTS or word in _THIRD_PARTIES:
             continue
         hyphened = end > at and word in _PARTICIPLES  # "Dallas-based", "AI-powered" describe; they don't act.
         modifies = words[end + 1:end + 2] and (words[end + 1] in _OWN_PRODUCTS or words[end + 1] in _OWN_PARTS)
-        plural = (len(word) > 3 and word.endswith("s") and not modifies and word not in _COMPANY_WORDS  # "Acme Labs", and "Smart Forms platform" (run 44)
+        plural = (len(word) > 3 and word.endswith("s") and not modifies and word not in _COMPANY_WORDS | _NOT_NAMES  # "Acme Labs", "plus", and "Smart Forms platform" (run 44)
                   and not word.endswith(("ss", "'s", "ers", "ors", "ants", "ents", "ists", "ees", "ics")))  # "telematics"
         if word in _VERBS or (word.endswith("ed") and not hyphened) or plural:
             return words[at:end] if end > at else None
     return None
+
+
+def _subject_of(words: list[str], at: int) -> list[str] | None:
+    subject = _subject(words, at)
+    if subject is None and _ROLES.intersection(words[at:at + 7]):
+        # Run 50: "Pocus's co-founders, Alexa Grabell and Sandy Mustard, said" puts the verb eight words on. A title
+        # and the names after it still pass every check in _owned.
+        subject = _subject(words, at, 11)
+    return subject
+
+
+def _person_names(named: list[str]) -> bool:
+    """ "Emily Yuan and Nico Laqua": each name two or three words, joined only by "and". A one-word "name" may be a
+    company ("Jane Doe and Stripe said"), and a date or linking word is someone else's story ("Jane Doe, until 2021")."""
+    if not named:
+        return True
+    groups, group = [], []
+    for word in named + ["and"]:
+        if word == "and":
+            groups.append(group)
+            group = []
+        else:
+            group.append(word)
+    shortest = 1 if len(groups) == 1 else 2  # "Rillet's new CRO, Renata, is hiring" (run 28) goes by one name.
+    return all(shortest <= len(group) <= 3 and not _NOT_NAMES.intersection(group)
+               and not any(char.isdigit() for word in group for char in word) for group in groups)
 
 
 def _owned(words: list[str], at: int) -> bool:
@@ -453,7 +486,7 @@ def _owned(words: list[str], at: int) -> bool:
     if (_THIRD_PARTIES.intersection(words[at:]) or {"ex", "former", "which", "who"}.intersection(words[at:])
             or any(word.endswith("'s") for word in words[at:at + 4])):  # Not "O'Banion" (run 44).
         return False
-    subject = _subject(words, at)
+    subject = _subject_of(words, at)
     if not subject:
         return False
     roles = [index for index, word in enumerate(subject) if word in _ROLES]
@@ -462,19 +495,29 @@ def _owned(words: list[str], at: int) -> bool:
         # Jeffrey Chivers, said" (run 45): a name follows their own title. Red team, run 45: not "Zuma's CEO of Toast",
         # "co-founder Jane Doe of Toast", "co-founder Toast Inc", "POS maker CEO Jane Doe" or "board and Toast CEO".
         title = [word for index, word in enumerate(subject[:roles[-1] + 1])
-                 if not (index and subject[index - 1] == "chief")]  # "chief people officer"
+                 if not (index and subject[index - 1] == "chief" and subject[index + 1:index + 2] == ["officer"])]  # "chief people officer"
         named = subject[roles[-1] + 1:]
         if named[:1] == ["of"]:
             if named[1:2] and named[1] not in _DEPARTMENTS and f"{named[1]}'s" != words[at - 1]:  # "CEO of Zuma"
                 return False
             named = named[2:]
-        return (set(title) <= _TITLES | _DEPARTMENTS | {"of"} and len(named) <= 5  # "Emily Yuan and Nico Laqua"
-                and named[:1] != ["and"]  # "Zuma's CEO and Toast raised"
-                and not (_OWN_PRODUCTS | _COMPANY_WORDS).intersection(named))
+        return (set(title) <= _TITLES | _DEPARTMENTS | {"of"} and len(named) <= 5 and _person_names(named)
+                and not (_OWN_PRODUCTS | _COMPANY_WORDS).intersection(named)
+                and not any(word.endswith("'s") for word in named))  # "Zuma's CEO, Jane Doe, and Toast's Li Wu said"
     head = subject[-1]
     if "the" in subject:  # "Zuma's POS and the Toast network grew"; "Travel-as-a-Service" keeps its "a"
         return False
     return head in _OWN_PARTS or head in _OWN_PRODUCTS or (head.endswith("ing") and bool(_OWN_PRODUCTS.intersection(subject)))
+
+
+def _plain_subject(text: str, found: list, words: list[str], at: int) -> bool:
+    """ "Zuma's CEO, Jane Doe (Toast), said" and "CEO, Jane Doe, Toast, said" hide a company in punctuation the words
+    drop (red team round 2, run 50). "Kettle's CEO, Nate Kugland, said" sets its name off with two commas."""
+    subject = _subject_of(words, at) or []
+    if not _ROLES.intersection(subject) or at + len(subject) >= len(found):
+        return True
+    span = text[found[at].start():found[at + len(subject)].start()]
+    return "&" not in span and "(" not in span and "/" not in span and span.count(",") <= 2
 
 
 def _own_possessive(words: list[str], name: list[str]) -> list[str]:
@@ -516,7 +559,7 @@ def _name_in_note(text: str, company: str) -> str | None:
     while used < len(name) and start + used < len(words) and words[start + used] == name[used]:
         used += 1
     if (used == len(name) - 1 and start + used + 1 < len(words) and words[start + used] == f"{name[-1]}'s"
-            and _owned(words, start + used + 1)):
+            and _owned(words, start + used + 1) and _plain_subject(text, found, words, start + used + 1)):
         return text[:found[start + used].end() - 2]  # "Ashby's CEO said": what follows is theirs.
     if not used:
         return ""
