@@ -1428,6 +1428,7 @@ class EvidenceTests(unittest.TestCase):
         self.assertFalse(lines("15M+ frontline jobs analyzed", "Augmentir has 15M+ frontline jobs analyzed.", "https://www.augmentir.com/", "Augmentir"))
         self.assertFalse(lines("92 million+ Jobs completed by Jobber-powered businesses",  # Seen live, Nov 12.
                                "Jobber has 92 million+ Jobs completed by Jobber-powered businesses.", "https://www.getjobber.com/", "Jobber"))
+        self.assertFalse(lines("Workrise is Now RigUp", "Workrise is Now RigUp.", "https://www.rigup.com/", "Workrise"))  # Seen live, run 55.
         # Found in review: a customer's result on a story list, or on a customer-stories page, or quoted without "our".
         result = "Response rates doubled within the first month"
         for url in ("https://acme.com/customer-stories/cortex", "https://acme.com/clients/cortex", "https://acme.com/customers?story=cortex"):

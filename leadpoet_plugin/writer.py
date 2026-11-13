@@ -183,6 +183,8 @@ _BADGE_CASE = re.compile(r"\b(?:is|are|was|were)\s+(?:Trusted|Loved|Used|Backed|
                          r"(?:\s*(?:&|and)\s*[A-Z]\w+)?\b")
 _HAS_PASSIVE = re.compile(r"\bhas\s+(?:trusted|loved|backed|chosen|rated|funded|recognized|recognised|featured|used|powered)\b"
                           r"(?:\s*(?:&|and)\s*\w+)?\s+(?:by|in|on)\b", re.IGNORECASE)
+# A rename notice is a heading, and names someone else. Seen live, run 55: "Workrise is Now RigUp".
+_RENAMED = re.compile(r"\b(?i:is|are)\s+(?i:now)\s+(?i:called\s+|known\s+as\s+|part\s+of\s+)?[A-Z]|\b(?i:formerly|previously)\s+(?i:known\s+as\s+)?[A-Z]")
 # Their pitch about themselves is not news to them. Seen live: "Bardeen is ideal for GTM teams across various roles".
 _SELF_PRAISE = re.compile(r"\b(?:is|are)\s+(?:the\s+|a\s+|an\s+)?(?:ideal|perfect|best|leading|premier|ultimate|go-to|#1|number one|"
                           r"(?:built|designed|made)\s+for)\b"
@@ -305,7 +307,7 @@ def validate_lines(raw: dict | None, scan: Scan, person: dict) -> tuple[list[dic
         line, quote, url = _sentence(clean(entry.get("line"), 400)), clean(entry.get("quote"), 500), clean(entry.get("url"), 2000)
         line = _BADGE_CASE.sub(lambda badge: badge.group().lower(), line)
         # A stat tile's meaning is in the label beside it: "5000+ Salespeople" counts their users, not their staff.
-        good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _RESULT_TILE.match(quote) and not _names_only(quote) and not _quote_names_another(quote, str(person.get("company") or "")) and not _HAS_PASSIVE.search(line) and not _SELF_PRAISE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
+        good = (line and len(line) <= MAX_LINE_CHARS and not _STAT_TILE.match(quote) and not _RESULT_TILE.match(quote) and not _names_only(quote) and not _quote_names_another(quote, str(person.get("company") or "")) and not _RENAMED.search(quote) and not _HAS_PASSIVE.search(line) and not _SELF_PRAISE.search(line) and ":" not in line and _opens_on_company(line, person) and not _has_forbidden(line, str(person.get("company") or "")) and not _PLACEHOLDER.search(line)
                 and not _NO_SUBJECT_OPENING.match(line) and not _DANGLING.search(line)
                 and not _heading_case(line, str(person.get("company") or ""), scan)
                 and not _BARE_COUNT.search(line) and not _PERSONAL_LIFE.search(quote)
