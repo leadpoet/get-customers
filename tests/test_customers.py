@@ -1828,7 +1828,9 @@ class SignalOpenerTests(unittest.TestCase):
                            ("Zuma", "Zuma's head of revenue operations, Ana Maria Diaz, said pipeline doubled in 2026."),
                            # Run 53.
                            ("Regrow", "Regrow's carbon program now covers 4 million acres."),
-                           ("Taranis", "Taranis's CEO and co-founder, Ofir Schlam, said the company tripled its customer base in 2026.")):
+                           ("Taranis", "Taranis's CEO and co-founder, Ofir Schlam, said the company tripled its customer base in 2026."),
+                           # Run 54: their partner program, not a partner company.
+                           ("Clio", "Clio's partner program now includes 200 law firm consultants.")):
             self.assertEqual(opener(name, f"https://www.{name.lower()}.com", note + tail, note)[1], [note])
         # Run 43: the model kept the note's "Mexico–U.S.", and an email allows no dash.
         dashed = "Cargado, a Mexico–U.S. cross-border freight forwarder, opened a Monterrey hub in 2026."
@@ -1877,7 +1879,8 @@ class SignalOpenerTests(unittest.TestCase):
                      "Zuma's partnerships with Toast platform grew in 2026.", "Zuma's operations and Toast valuation rose in 2026.",
                      "Zuma's CEO said customer base owner Acme raised $5M in 2026.", "Zuma's partner program member Acme raised $5M.",
                      # Red team, run 53: a plural after "program" is the members' news.
-                     "Zuma's accelerator program startups raised $40M in 2026.", "Zuma's referral program affiliates grew 3x in 2026."):
+                     "Zuma's accelerator program startups raised $40M in 2026.", "Zuma's referral program affiliates grew 3x in 2026.",
+                     "Zuma's partner program company Acme raised $5M.", "Zuma's partner program with Toast grew 40% in 2026."):
             self.assertEqual(opener("Zuma", "https://www.getzuma.com", note + tail, note)[1], [], note)  # Someone else's product.
         for note in ("Zuma's sales team plans a launch in 2026.", "Zuma's enterprise team plans to hire 20 reps.",
                      "Zuma unveiled a new plan for European expansion.", "Zuma has grown 10x since 2024 and hired a CRO in March 2025."):

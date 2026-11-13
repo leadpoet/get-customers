@@ -492,9 +492,15 @@ def _owned(words: list[str], at: int) -> bool:
     if at < len(words) and words[at] in ("customer", "user", "client") and words[at + 1:at + 2] in (["base"], ["count"]):
         return True
     # Run 53: "said the company tripled its customer base" counts their own customers, not a customer company.
+    # Run 54: "Clio's partner program now includes" is their program; the partners are its members, not a company.
     rest = [word for index, word in enumerate(words[at:], at) if not (
         word in ("customer", "user", "client") and words[index + 1:index + 2] in (["base"], ["count"])
-        and words[index - 1] in ("its", "their"))]
+        and words[index - 1] in ("its", "their")
+        or word in ("partner", "reseller") and index == at and words[index + 1:index + 2] == ["program"]
+        and words[index + 2:index + 3] != [] and (words[index + 2] in _VERBS or words[index + 2].endswith("ed") or words[index + 2] in ("now", "has", "is"))
+        and not {"led", "run", "powered", "won", "managed", "operated", "owned"}.intersection(words[at:]))]
+    # Red team, run 54: only "partner program grew", with nothing between it and the verb; "partner program Acme
+    # platform raised", "partner program and Toast grew" and "program led by Acme" stay someone else's news.
     if (_THIRD_PARTIES.intersection(rest) or {"ex", "former", "which", "who"}.intersection(words[at:])
             or any(word.endswith("'s") for word in words[at:at + 4])):  # Not "O'Banion" (run 44).
         return False
