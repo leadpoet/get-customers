@@ -170,7 +170,10 @@ _RESULT_TILE = re.compile(r"\W*(?:up\s+to\s+|over\s+|more\s+than\s+|nearly\s+|al
                           r"|\W*(?:up\s+to\s+|over\s+|more\s+than\s+|nearly\s+|almost\s+)?[$€£]?\d[\d.,]*\S*\s+(?:[\w-]+\s+){0,3}?"
                           r"(?:reclaimed|saved|recovered|reduced|eliminated|generated|booked|gained|won|avoided|freed|unlocked)\b"
                           # "15M+ frontline jobs analyzed" became "Augmentir has 15M+ frontline jobs analyzed", seen live.
-                          r"|\W*(?:up\s+to\s+|over\s+|more\s+than\s+|nearly\s+|almost\s+)?[$€£]?\d[\d.,]*\S*\s+(?:[\w-]+\s+){0,3}?[a-z]+ed\W*$",
+                          # Seen live, Nov 12: "92 million+ Jobs completed by Jobber-powered businesses" became "Jobber has 92
+                          # million+ Jobs completed by Jobber-powered businesses".
+                          r"|\W*(?:up\s+to\s+|over\s+|more\s+than\s+|nearly\s+|almost\s+)?[$€£]?\d[\d.,]*\S*"
+                          r"(?:\s+(?:thousand|million|billion|trillion)\+?)?\s+(?:[\w-]+\s+){0,3}?[a-z]+ed(?:\s+(?:by|for|with|across)\s+[^.]*)?\W*$",
                           re.IGNORECASE)
 # A tile like "Trusted & Loved by 10,000+ teams" takes is, never has: "Persana AI has Trusted & Loved by" was seen live.
 # A heading's capitals don't belong mid-sentence: "Trumpet is Trusted by 15,000+ revenue teams" and "Machina Labs is Born
@@ -481,6 +484,19 @@ def _person_names(named: list[str]) -> bool:
                and not any(char.isdigit() for word in group for char in word) for group in groups)
 
 
+def _counts_own(words: list[str], at: int, index: int) -> bool:
+    """ "said the company signed 40 enterprise customers in Q3 2026": the company's own verb takes the customers as its
+    object, and nothing after them acts. Red team, run 55: not "Zuma's 40 customers in AI raised", "said 40 customers
+    in Europe raised $2B", "lost 3 customers in 2026 to Toast" or "served 3 customers that raised $1B"."""
+    acted = [(spot, prior) for spot, prior in enumerate(words[at:index], at) if prior in _VERBS or prior.endswith("ed")]
+    after = words[index + 1:]
+    # Red team round 2, run 55: only a short time or place may follow, as in "in Q3 2026", never "in Europe raising $2B".
+    tail = (after in ([], ["worldwide"], ["globally"])
+            or after[:1] in (["in"], ["across"], ["during"], ["since"], ["this"], ["last"]) and len(after) <= 3)
+    return (bool(acted) and acted[-1][1] not in ("said", "says", "told", "stated", "noted") and index - acted[-1][0] <= 3
+            and tail and not any(word.endswith("'s") for word in after))
+
+
 def _owned(words: list[str], at: int) -> bool:
     """ "Zuma's customer base grew" is theirs too; "Zuma's customer Acme raised" is Acme's news (run 32).
 
@@ -496,6 +512,11 @@ def _owned(words: list[str], at: int) -> bool:
     rest = [word for index, word in enumerate(words[at:], at) if not (
         word in ("customer", "user", "client") and words[index + 1:index + 2] in (["base"], ["count"])
         and words[index - 1] in ("its", "their")
+        # Run 55: "said the company signed 40 enterprise customers" counts their own customers.
+        or word in ("customers", "clients", "users") and index > at + 1
+        and any(char.isdigit() for prior in words[max(at, index - 2):index] for char in prior)
+        and _counts_own(words, at, index)
+        and (words[index + 1:index + 2] or ["."])[0] in (".", "in", "across", "during", "since", "this", "last", "worldwide", "globally")
         or word in ("partner", "reseller") and index == at and words[index + 1:index + 2] == ["program"]
         and words[index + 2:index + 3] != [] and (words[index + 2] in _VERBS or words[index + 2].endswith("ed") or words[index + 2] in ("now", "has", "is"))
         and not {"led", "run", "powered", "won", "managed", "operated", "owned"}.intersection(words[at:]))]

@@ -1426,6 +1426,8 @@ class EvidenceTests(unittest.TestCase):
                  "https://www.augmentir.com/", "Augmentir")):
             self.assertFalse(lines(quote, line, site, company), quote)
         self.assertFalse(lines("15M+ frontline jobs analyzed", "Augmentir has 15M+ frontline jobs analyzed.", "https://www.augmentir.com/", "Augmentir"))
+        self.assertFalse(lines("92 million+ Jobs completed by Jobber-powered businesses",  # Seen live, Nov 12.
+                               "Jobber has 92 million+ Jobs completed by Jobber-powered businesses.", "https://www.getjobber.com/", "Jobber"))
         # Found in review: a customer's result on a story list, or on a customer-stories page, or quoted without "our".
         result = "Response rates doubled within the first month"
         for url in ("https://acme.com/customer-stories/cortex", "https://acme.com/clients/cortex", "https://acme.com/customers?story=cortex"):
@@ -1830,7 +1832,9 @@ class SignalOpenerTests(unittest.TestCase):
                            ("Regrow", "Regrow's carbon program now covers 4 million acres."),
                            ("Taranis", "Taranis's CEO and co-founder, Ofir Schlam, said the company tripled its customer base in 2026."),
                            # Run 54: their partner program, not a partner company.
-                           ("Clio", "Clio's partner program now includes 200 law firm consultants.")):
+                           ("Clio", "Clio's partner program now includes 200 law firm consultants."),
+                           # Run 55: a counted plural is their own customers.
+                           ("Findem", "Findem's CEO, Hari Kolam, said the company signed 40 enterprise customers in Q3 2026.")):
             self.assertEqual(opener(name, f"https://www.{name.lower()}.com", note + tail, note)[1], [note])
         # Run 43: the model kept the note's "Mexico–U.S.", and an email allows no dash.
         dashed = "Cargado, a Mexico–U.S. cross-border freight forwarder, opened a Monterrey hub in 2026."
@@ -1880,7 +1884,8 @@ class SignalOpenerTests(unittest.TestCase):
                      "Zuma's CEO said customer base owner Acme raised $5M in 2026.", "Zuma's partner program member Acme raised $5M.",
                      # Red team, run 53: a plural after "program" is the members' news.
                      "Zuma's accelerator program startups raised $40M in 2026.", "Zuma's referral program affiliates grew 3x in 2026.",
-                     "Zuma's partner program company Acme raised $5M.", "Zuma's partner program with Toast grew 40% in 2026."):
+                     "Zuma's partner program company Acme raised $5M.", "Zuma's partner program with Toast grew 40% in 2026.",
+                     "Zuma's CEO said 3 customers Acme raised $5M.", "Zuma's CEO said 40 customers of Toast raised $5M."):
             self.assertEqual(opener("Zuma", "https://www.getzuma.com", note + tail, note)[1], [], note)  # Someone else's product.
         for note in ("Zuma's sales team plans a launch in 2026.", "Zuma's enterprise team plans to hire 20 reps.",
                      "Zuma unveiled a new plan for European expansion.", "Zuma has grown 10x since 2024 and hired a CRO in March 2025."):
