@@ -404,7 +404,8 @@ _OWN_PRODUCTS = frozenset({"platform", "product", "products", "app", "apps", "so
                             "modules", "integration", "integrations", "kiosk", "kiosks", "device", "devices", "hardware",
                             "crm", "ats", "hris", "erp",  # Seen live, run 42: "Gem's recruiting CRM was used".
                             "tms", "wms", "lms", "pos", "ehr", "emr", "cms", "cdp", "cpq",  # Run 43: "Newtrul's TMS is used by".
-                            "extension", "extensions", "plugin", "plugins"})  # Run 48: "Brisk Teaching's Chrome extension is now used"
+                            "extension", "extensions", "plugin", "plugins",  # Run 48: "Brisk Teaching's Chrome extension is now used"
+                            "program", "programs"})  # Run 53: "Regrow Ag's carbon program now covers 4 million acres"
 _THIRD_PARTIES = frozenset({"competitor", "competitors", "rival", "rivals", "customer", "customers", "client", "clients", "partner", "partners",
                             "investor", "investors", "backer", "backers", "parent", "subsidiary", "acquirer", "vendor", "vendors", "supplier", "suppliers",
                             "provider", "reseller", "distributor"})  # "Zuma's POS provider Toast raised" is Toast's news.
@@ -447,6 +448,8 @@ def _subject(words: list[str], at: int, span: int = 7) -> list[str] | None:
         plural = (len(word) > 3 and word.endswith("s") and not modifies and not department  # "Acme Labs", "plus", and "Smart Forms platform" (run 44)
                   and word not in _COMPANY_WORDS | _NOT_NAMES
                   and not word.endswith(("ss", "'s", "ers", "ors", "ants", "ents", "ists", "ees", "ics")))  # "telematics"
+        if plural and word not in _VERBS and end > at and words[end - 1] in _OWN_PRODUCTS:
+            return None  # Red team, run 53: "Zuma's accelerator program startups raised" is the startups' news.
         if word in _VERBS or (word.endswith("ed") and not hyphened) or plural:
             return words[at:end] if end > at else None
     return None
@@ -488,7 +491,11 @@ def _owned(words: list[str], at: int) -> bool:
     or a "which" or "who" clause anywhere after it still refuses: "Zuma's sales partner Acme", "built by Acme, which raised"."""
     if at < len(words) and words[at] in ("customer", "user", "client") and words[at + 1:at + 2] in (["base"], ["count"]):
         return True
-    if (_THIRD_PARTIES.intersection(words[at:]) or {"ex", "former", "which", "who"}.intersection(words[at:])
+    # Run 53: "said the company tripled its customer base" counts their own customers, not a customer company.
+    rest = [word for index, word in enumerate(words[at:], at) if not (
+        word in ("customer", "user", "client") and words[index + 1:index + 2] in (["base"], ["count"])
+        and words[index - 1] in ("its", "their"))]
+    if (_THIRD_PARTIES.intersection(rest) or {"ex", "former", "which", "who"}.intersection(words[at:])
             or any(word.endswith("'s") for word in words[at:at + 4])):  # Not "O'Banion" (run 44).
         return False
     subject = _subject_of(words, at)
