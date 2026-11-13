@@ -403,7 +403,8 @@ _OWN_PRODUCTS = frozenset({"platform", "product", "products", "app", "apps", "so
                             "voice", "feature", "features", "model", "models", "engine", "system", "systems", "suite", "module",
                             "modules", "integration", "integrations", "kiosk", "kiosks", "device", "devices", "hardware",
                             "crm", "ats", "hris", "erp",  # Seen live, run 42: "Gem's recruiting CRM was used".
-                            "tms", "wms", "lms", "pos", "ehr", "emr", "cms", "cdp", "cpq"})  # Run 43: "Newtrul's TMS is used by".
+                            "tms", "wms", "lms", "pos", "ehr", "emr", "cms", "cdp", "cpq",  # Run 43: "Newtrul's TMS is used by".
+                            "extension", "extensions", "plugin", "plugins"})  # Run 48: "Brisk Teaching's Chrome extension is now used"
 _THIRD_PARTIES = frozenset({"competitor", "competitors", "rival", "rivals", "customer", "customers", "client", "clients", "partner", "partners",
                             "investor", "investors", "backer", "backers", "parent", "subsidiary", "acquirer", "vendor", "vendors", "supplier", "suppliers",
                             "provider", "reseller", "distributor"})  # "Zuma's POS provider Toast raised" is Toast's news.

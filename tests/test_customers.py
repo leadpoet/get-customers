@@ -1816,6 +1816,7 @@ class SignalOpenerTests(unittest.TestCase):
         for name, note in (("Kettle", "Kettle's CEO, Nate Kugland, said the company will double its sales team in 2026."),
                            ("Corgi", "Corgi's founders, Emily Yuan and Nico Laqua, raised $108M in 2026."),
                            ("Syllo", "Syllo's co-founder and CEO, Jeffrey Chivers, said the team tripled in 2026."),  # Run 45.
+                           ("Brisk", "Brisk's Chrome extension is now used by 2 million teachers."),  # Run 48.
                            ("Clearbrief", "Clearbrief's VP of Sales, Ana Diaz, spoke at Legalweek 2026 about AI cite checking."),
                            ("Zuma", "Zuma's chief executive officer, Jane Doe, said revenue doubled in 2026."),
                            ("Zuma", "Zuma's head of people and COO said headcount doubled in 2026.")):
@@ -1846,7 +1847,7 @@ class SignalOpenerTests(unittest.TestCase):
                      # Red team, run 45: a title or name that is someone else's, or what an executive did to them.
                      "Zuma's CEO of Toast raised $5M in 2026.", "Zuma's co-founder Toast Inc raised $5M in 2026.",
                      "Zuma's co-founder Jane Doe of Toast raised $5M in 2026.", "Zuma's board and Toast CEO raised $5M in 2026.",
-                     "Zuma's CEO and Toast raised $5M in 2026.",                      "Zuma's co-founder Acme Labs raised $5M in 2026.", "Zuma's VP of Toast, Jane Doe, said revenue doubled."):
+                     "Zuma's CEO and Toast raised $5M in 2026.",                      "Zuma's co-founder Acme Labs raised $5M in 2026.", "Zuma's Chrome extension maker raised $5M in 2026.", "Zuma's VP of Toast, Jane Doe, said revenue doubled."):
             self.assertEqual(opener("Zuma", "https://www.getzuma.com", note + tail, note)[1], [], note)  # Someone else's product.
         for note in ("Zuma's sales team plans a launch in 2026.", "Zuma's enterprise team plans to hire 20 reps.",
                      "Zuma unveiled a new plan for European expansion.", "Zuma has grown 10x since 2024 and hired a CRO in March 2025."):
