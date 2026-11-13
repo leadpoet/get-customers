@@ -440,7 +440,12 @@ def _subject(words: list[str], at: int, span: int = 7) -> list[str] | None:
             continue
         hyphened = end > at and word in _PARTICIPLES  # "Dallas-based", "AI-powered" describe; they don't act.
         modifies = words[end + 1:end + 2] and (words[end + 1] in _OWN_PRODUCTS or words[end + 1] in _OWN_PARTS)
-        plural = (len(word) > 3 and word.endswith("s") and not modifies and word not in _COMPANY_WORDS | _NOT_NAMES  # "Acme Labs", "plus", and "Smart Forms platform" (run 44)
+        # Run 51: "head of growth and partnerships, Ana Ruiz" or "partnerships chief", but not "Zuma's partnerships
+        # with Toast platform grew" (red team, run 51).
+        department = word in _DEPARTMENTS and (bool(_ROLES.intersection(words[at:end])) or words[end + 1:end + 2] != []
+                                               and words[end + 1] in _ROLES | _DEPARTMENTS)
+        plural = (len(word) > 3 and word.endswith("s") and not modifies and not department  # "Acme Labs", "plus", and "Smart Forms platform" (run 44)
+                  and word not in _COMPANY_WORDS | _NOT_NAMES
                   and not word.endswith(("ss", "'s", "ers", "ors", "ants", "ents", "ists", "ees", "ics")))  # "telematics"
         if word in _VERBS or (word.endswith("ed") and not hyphened) or plural:
             return words[at:end] if end > at else None
@@ -500,7 +505,11 @@ def _owned(words: list[str], at: int) -> bool:
         if named[:1] == ["of"]:
             if named[1:2] and named[1] not in _DEPARTMENTS and f"{named[1]}'s" != words[at - 1]:  # "CEO of Zuma"
                 return False
-            named = named[2:]
+            used = 2  # "head of revenue operations", "VP of Sales and Marketing" (run 51), but not "VP of Sales and Toast".
+            while used < len(named) and (named[used] in _DEPARTMENTS or named[used] == "and" and named[used + 1:used + 2]
+                                         and named[used + 1] in _DEPARTMENTS):
+                used += 1
+            named = named[used:]
         return (set(title) <= _TITLES | _DEPARTMENTS | {"of"} and len(named) <= 5 and _person_names(named)
                 and not (_OWN_PRODUCTS | _COMPANY_WORDS).intersection(named)
                 and not any(word.endswith("'s") for word in named))  # "Zuma's CEO, Jane Doe, and Toast's Li Wu said"

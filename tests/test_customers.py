@@ -1822,7 +1822,10 @@ class SignalOpenerTests(unittest.TestCase):
                            ("Zuma", "Zuma's head of people and COO said headcount doubled in 2026."),
                            # Run 50: the verb came eight words after their name.
                            ("Pocus", "Pocus's co-founders, Alexa Grabell and Sandy Mustard, said the company doubled its revenue in 2026."),
-                           ("Zuma", "Zuma's co-founder and chief executive officer, Jane Doe, said revenue doubled in 2026.")):
+                           ("Zuma", "Zuma's co-founder and chief executive officer, Jane Doe, said revenue doubled in 2026."),
+                           # Run 51: "partnerships" is a department, not a verb.
+                           ("Notable", "Notable's head of growth and partnerships, Ana Ruiz, said the team doubled in 2026."),
+                           ("Zuma", "Zuma's head of revenue operations, Ana Maria Diaz, said pipeline doubled in 2026.")):
             self.assertEqual(opener(name, f"https://www.{name.lower()}.com", note + tail, note)[1], [note])
         # Run 43: the model kept the note's "Mexico–U.S.", and an email allows no dash.
         dashed = "Cargado, a Mexico–U.S. cross-border freight forwarder, opened a Monterrey hub in 2026."
@@ -1865,7 +1868,10 @@ class SignalOpenerTests(unittest.TestCase):
                      "Zuma's co-founder and CEO, Jane Doe, Toast, said revenue doubled in 2026.",
                      "Zuma's co-founder and chief revenue officer, Jane plus Toast, raised $40M in 2026.",
                      "Zuma's co-founder and CEO, Jane Doe, and Toast chairman Wu said they raised $40M.",
-                     "Zuma's chief, Toast co-founder and CEO Jane Doe Lee, said revenue doubled in 2026."):
+                     "Zuma's chief, Toast co-founder and CEO Jane Doe Lee, said revenue doubled in 2026.",
+                     "Zuma's VP of Sales and Toast, Jane Doe, said revenue doubled in 2026.",
+                     # Red team, run 51: a department plural is no title without a role.
+                     "Zuma's partnerships with Toast platform grew in 2026.", "Zuma's operations and Toast valuation rose in 2026."):
             self.assertEqual(opener("Zuma", "https://www.getzuma.com", note + tail, note)[1], [], note)  # Someone else's product.
         for note in ("Zuma's sales team plans a launch in 2026.", "Zuma's enterprise team plans to hire 20 reps.",
                      "Zuma unveiled a new plan for European expansion.", "Zuma has grown 10x since 2024 and hired a CRO in March 2025."):
