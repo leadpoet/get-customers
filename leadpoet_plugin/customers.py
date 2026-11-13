@@ -764,7 +764,8 @@ class Customers:
         text = (f"Wrote for {len(people)} {'person' if len(people) == 1 else 'people'}. "
                 f"{sourced} {'has' if sourced == 1 else 'have'} a personal line with a source.")
         if dropped:
-            text += f" I threw out {dropped} line{'s' if dropped != 1 else ''} the page didn't back up."
+            # Run 55: a line also drops for a sensitive topic or a heading, not only a page that doesn't back it up.
+            text += f" I left out {dropped} line{'s' if dropped != 1 else ''} that failed my checks."
         return text
 
     def _person_code(self, job: dict, person: dict) -> str:

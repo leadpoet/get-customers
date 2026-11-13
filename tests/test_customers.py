@@ -380,7 +380,7 @@ class WriteCase(Case):
         self.assertEqual(self.people()["Lena"]["lines"], [])
         self.assertEqual(self.people()["Lena"]["dropped"], 1)
         self.assertNotIn("Omaha", json.dumps(self.people()["Lena"]["touches"]))
-        self.assertIn("threw out 1", self.text)
+        self.assertIn("left out 1 line that failed my checks", self.text)
 
     def test_the_summary_counts_one_person_in_the_singular(self):
         real = self.api.pipeline_contacts
