@@ -221,8 +221,7 @@ class Desk:
             return f"{len(new)} new replies in Leadpoet.\n\n/desk to go through them"
         blocks = []
         for item in new:
-            label = (item.get("classification") or "new").replace("_", " ")
-            blocks.append(f"{_who(item)} replied ({label})\n{_quote(item.get('inbound_text'))}")
+            blocks.append(f"{_who(item)} replied\n{_quote(item.get('inbound_text'))}")
         return "\n\n".join(blocks) + "\n\n/desk to answer"
 
     # ── Current reply ───────────────────────────────────────────────────────
@@ -457,6 +456,5 @@ class Desk:
         items = self.store.open_items()
         if not items:
             return "Nothing to answer."
-        lines = [f"{index}. {_who(item)} ({(item.get('classification') or 'new').replace('_', ' ')})"
-                 for index, item in enumerate(items[:20], 1)]
+        lines = [f"{index}. {_who(item)}" for index, item in enumerate(items[:20], 1)]
         return "\n".join(lines) + "\n\n/desk to start"
