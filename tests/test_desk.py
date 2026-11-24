@@ -345,7 +345,9 @@ class DeskCase(unittest.TestCase):
 
     def test_poll_alerts_once_then_stays_silent(self):
         _, desk = self.make()
-        self.assertIn("Ana Ruiz, Acme replied", run(desk))
+        alert = run(desk)
+        self.assertIn("Ana Ruiz, Acme replied\n", alert)
+        self.assertNotIn("(", alert.splitlines()[0])
         self.assertEqual(run(desk), "")
 
     def test_poll_quiet_on_blips_and_warns_on_the_third(self):
